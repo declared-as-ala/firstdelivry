@@ -17,8 +17,8 @@ export async function POST() {
   if (!session?.user) return NextResponse.json({ success: false, error: "Non authentifié" }, { status: 401 })
   if (!SYNC_ROLES.includes(session.user.role as string)) return NextResponse.json({ success: false, error: "Accès refusé" }, { status: 403 })
 
-  if (!process.env.NAVEX_STATUS_TOKEN) {
-    return NextResponse.json({ success: false, error: { code: "NOT_CONFIGURED", message: "Synchronisation des paiements Navex indisponible." } }, { status: 503 })
+  if (!process.env.FIRST_DELIVERY_TOKEN) {
+    return NextResponse.json({ success: false, error: { code: "NOT_CONFIGURED", message: "Synchronisation des paiements First Delivery indisponible." } }, { status: 503 })
   }
 
   await connectDB()

@@ -37,7 +37,7 @@ export default function VerifierPage() {
     navigator.clipboard.writeText(codes).then(() => toast.success(`${data?.parcels.length} codes copiés`))
   }
   function downloadExcel() {
-    const rows = [["Code Navex", "COD", "Designation", "Date remise", "Jours en cours"]]
+    const rows = [["Code First Delivery", "COD", "Designation", "Date remise", "Jours en cours"]]
     for (const p of data?.parcels || []) rows.push([p.navexTrackingCode, String(p.codAmount), p.designation || "", frDate(p.handedToNavexAt), String(daysSince(p.handedToNavexAt))])
     const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n")
     const url = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" }))
@@ -49,7 +49,7 @@ export default function VerifierPage() {
   return (
     <div>
       <PageHeader title="Colis Dhay3in"
-        subtitle={data ? `En cours depuis plus de ${data.delay} jours — à réclamer à Navex / livreur` : ""}
+        subtitle={data ? `En cours depuis plus de ${data.delay} jours — à réclamer à First Delivery / livreur` : ""}
         action={
           <div className="flex flex-wrap gap-2 print:hidden">
             <Button variant="outline" onClick={copyCodes}><Copy className="h-4 w-4 mr-2" />Copier les codes</Button>
@@ -77,10 +77,10 @@ export default function VerifierPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-400">
-                <th className="px-3 py-2.5 font-medium">Code Navex</th>
+                <th className="px-3 py-2.5 font-medium">Code First Delivery</th>
                 <th className="px-3 py-2.5 font-medium text-right">COD</th>
                 <th className="px-3 py-2.5 font-medium">Désignation</th>
-                <th className="px-3 py-2.5 font-medium">Date remise à Navex</th>
+                <th className="px-3 py-2.5 font-medium">Date remise à First Delivery</th>
                 <th className="px-3 py-2.5 font-medium">Jours en cours</th>
               </tr>
             </thead>

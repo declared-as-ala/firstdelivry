@@ -79,8 +79,8 @@ export async function POST(req: NextRequest) {
     }
 
     const lookup = await navexService.getParcelByTrackingCode(trackingCode)
-    if (!lookup.configured) { await log("BLOCKED", null, "Navex non configuré"); return reject("NOT_CONFIGURED", "Recherche Navex indisponible. Configurez l'endpoint dans Paramètres.") }
-    if (!lookup.found || !lookup.parcel) { await log("UNKNOWN", null, "Introuvable chez Navex"); return reject("UNKNOWN", "Code Navex introuvable chez Navex. Aucun colis n'a été créé.") }
+    if (!lookup.configured) { await log("BLOCKED", null, "First Delivery non configuré"); return reject("NOT_CONFIGURED", "Recherche First Delivery indisponible. Configurez l'endpoint dans Paramètres.") }
+    if (!lookup.found || !lookup.parcel) { await log("UNKNOWN", null, "Introuvable chez First Delivery"); return reject("UNKNOWN", "Code First Delivery introuvable chez First Delivery. Aucun colis n'a été créé.") }
 
     const d = lookup.parcel
     const created = await Order.create({

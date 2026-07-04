@@ -10,8 +10,8 @@ export async function POST(req: NextRequest) {
   if (secret && req.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 })
   }
-  if (!process.env.NAVEX_STATUS_TOKEN) {
-    return NextResponse.json({ success: false, error: "Paiements Navex non configurés" }, { status: 503 })
+  if (!process.env.FIRST_DELIVERY_TOKEN) {
+    return NextResponse.json({ success: false, error: "Paiements First Delivery non configurés" }, { status: 503 })
   }
 
   await connectDB()

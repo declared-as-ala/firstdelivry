@@ -79,7 +79,7 @@ export default function LoginPage() {
                 <span className="text-blue-300">logistique &amp; COD</span>
               </h1>
               <p className="text-base text-white/50 leading-relaxed mt-3">
-                Gérez vos remises Navex, suivez les livraisons, confirmez les retours
+                Gérez vos remises First Delivery, suivez les livraisons, confirmez les retours
                 et réconciliez les paiements COD en un seul endroit.
               </p>
             </div>
