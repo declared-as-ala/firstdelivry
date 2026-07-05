@@ -407,7 +407,7 @@ export class NavexService {
       const res = await makeFirstDeliveryRequest<any>(url, "POST", { barCode: trackingCode }, trackingCode)
       const resData = res.result
       
-      const hasData = res && !res.isError && resData && (resData.Client || resData.Produit)
+      const hasData = res && !res.isError && resData
       if (!hasData) return { configured: true, found: false }
 
       const client = resData.Client || {}
