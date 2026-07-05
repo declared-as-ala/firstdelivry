@@ -401,28 +401,31 @@ export class NavexService {
       return { configured: false, found: false, error: "Jeton First Delivery non configuré" }
     }
 
-    const url = `${cfg.apiBase}/etat`
+    const url = `${cfg.apiBase}/filter`
 
     try {
-      const res = await makeFirstDeliveryRequest<any>(url, "POST", { barCode: trackingCode }, trackingCode)
-      const resData = res.result
-      
-      const hasData = res && !res.isError && resData
-      if (!hasData) return { configured: true, found: false }
+      const res = await makeFirstDeliveryRequest<any>(
+        url,
+        "POST",
+        { barCode: trackingCode, pageNumber: 1, limit: 1 },
+        trackingCode
+      )
+      const item = res?.result?.Items?.[0]
+      if (!item) return { configured: true, found: false }
 
-      const client = resData.Client || {}
-      const produit = resData.Produit || {}
+      const client = item.Client || {}
+      const product = item.Product || item.Produit || {}
 
       const parcel: NavexParcelData = {
-        clientName: client.nom || "",
+        clientName: client.name || client.nom || "",
         clientPhone: client.telephone || "",
-        clientAddress: client.adresse || "",
-        city: client.ville || "",
-        governorate: client.gouvernerat || "",
-        codAmount: parseFloat(String(produit.prix || 0)) || 0,
-        designation: produit.designation || produit.article || "",
-        navexCreatedAt: resData.createdAt || undefined,
-        navexStatusRaw: String(resData.state !== undefined ? resData.state : "0"),
+        clientAddress: client.address || client.adresse || "",
+        city: client.city || client.ville || "",
+        governorate: client.state || client.gouvernerat || "",
+        codAmount: parseFloat(String(product.price || product.prix || 0)) || 0,
+        designation: product.designation || product.article || "",
+        navexCreatedAt: item.createdAt || undefined,
+        navexStatusRaw: String(item.state !== undefined ? item.state : "0"),
       }
       return { configured: true, found: true, parcel }
     } catch (error: any) {
