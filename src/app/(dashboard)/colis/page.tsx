@@ -5,8 +5,8 @@ import { toast } from "sonner"
 import { PageHeader, EmptyState, StatusBadge, formatTND } from "@/components/parcel-ui"
 import { SkeletonRows } from "@/components/skeletons"
 import { ChartCard, AgingBar, GroupedBar, COLORS } from "@/components/charts"
-import { Button } from "@/components/ui/button"
-import { Search, RefreshCw, Trash2 } from "lucide-react"
+import { SyncButton } from "@/components/sync-dialog"
+import { Search, Trash2 } from "lucide-react"
 
 interface Parcel {
   _id: string
@@ -56,7 +56,6 @@ export default function ColisPage() {
   const [delayInput, setDelayInput] = useState("3")
   const [isEmpty, setIsEmpty] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [syncing, setSyncing] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [q, setQ] = useState("")
   const [view, setView] = useState("")
@@ -98,14 +97,6 @@ export default function ColisPage() {
   function toggle(id: string) { setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n }) }
   function toggleAll() { setSelected((s) => s.size === parcels.length ? new Set() : new Set(parcels.map((p) => p._id))) }
 
-  async function sync() {
-    setSyncing(true)
-    const j = await (await fetch("/api/parcels/sync", { method: "POST" })).json()
-    setSyncing(false)
-    if (j.success) { toast.success(`${j.data.paid} colis marqués Payé`); load() }
-    else toast.error(j.error?.message || j.error || "Synchronisation indisponible")
-  }
-
   async function saveDelay() {
     const n = parseInt(delayInput, 10)
     if (!Number.isFinite(n) || n < 1) { setDelayInput(String(delay)); return }
@@ -133,7 +124,7 @@ export default function ColisPage() {
                 <Trash2 className="h-4 w-4" />Supprimer ({selected.size})
               </button>
             )}
-            <Button onClick={sync} disabled={syncing}><RefreshCw className={`h-4 w-4 mr-2 ${syncing ? "animate-spin" : ""}`} />Synchroniser les paiements First Delivery</Button>
+            <SyncButton onDone={load} />
           </div>
         } />
 
