@@ -5,8 +5,9 @@ import { toast } from "sonner"
 import { PageHeader, EmptyState, StatusBadge, formatTND } from "@/components/parcel-ui"
 import { SkeletonRows } from "@/components/skeletons"
 import { ChartCard, AgingBar, GroupedBar, COLORS } from "@/components/charts"
-import { SyncButton } from "@/components/sync-dialog"
-import { Search, Trash2 } from "lucide-react"
+import { useNavexSync, SyncBar, type SyncProgressEvent } from "@/components/sync-bar"
+import { Button } from "@/components/ui/button"
+import { Search, Trash2, RefreshCw } from "lucide-react"
 
 interface Parcel {
   _id: string
@@ -94,6 +95,19 @@ export default function ColisPage() {
   }, [q, view, applyDate])
   useEffect(() => { load() }, [load])
 
+  // Live row updates while the First Delivery sync streams in — a parcel flips to
+  // Payé the instant its own event arrives, no need to wait for the whole batch.
+  const [justPaidCodes, setJustPaidCodes] = useState<Set<string>>(new Set())
+  const handleSyncProgress = useCallback((evt: SyncProgressEvent) => {
+    if (!evt.justPaid || !evt.code) return
+    const code = evt.code
+    const now = new Date().toISOString()
+    setParcels((prev) => prev.map((p) => p.navexTrackingCode === code ? { ...p, status: "PAYE", paidAt: now, updatedAt: now } : p))
+    setJustPaidCodes((s) => new Set(s).add(code))
+    setTimeout(() => setJustPaidCodes((s) => { const n = new Set(s); n.delete(code); return n }), 2500)
+  }, [])
+  const sync = useNavexSync({ onProgress: handleSyncProgress, onDone: load })
+
   function toggle(id: string) { setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n }) }
   function toggleAll() { setSelected((s) => s.size === parcels.length ? new Set() : new Set(parcels.map((p) => p._id))) }
 
@@ -124,9 +138,14 @@ export default function ColisPage() {
                 <Trash2 className="h-4 w-4" />Supprimer ({selected.size})
               </button>
             )}
-            <SyncButton onDone={load} />
+            <Button onClick={sync.start} disabled={sync.phase === "running"}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${sync.phase === "running" ? "animate-spin" : ""}`} />
+              Synchroniser les paiements First Delivery
+            </Button>
           </div>
         } />
+
+      <SyncBar sync={sync} />
 
       {/* Summary (respects date filter): count + montant COD */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
@@ -238,10 +257,25 @@ export default function ColisPage() {
                 <SkeletonRows rows={8} cols={10} />
               ) : parcels.length === 0 ? (
                 <tr><td colSpan={10} className="px-3 py-8 text-center text-slate-400">Aucun colis pour ce filtre</td></tr>
-              ) : parcels.map((p) => (
-                <tr key={p._id} className={`hover:bg-slate-50 ${selected.has(p._id) ? "bg-blue-50/50" : ""}`}>
+              ) : parcels.map((p) => {
+                const verifying = sync.phase === "running" && sync.current === p.navexTrackingCode
+                const justPaid = justPaidCodes.has(p.navexTrackingCode)
+                return (
+                <tr key={p._id} className={`transition-colors duration-500 hover:bg-slate-50 ${
+                  justPaid ? "bg-green-50" : verifying ? "bg-blue-50/70" : selected.has(p._id) ? "bg-blue-50/50" : ""
+                }`}>
                   <td className="px-3 py-2.5"><input type="checkbox" className="h-4 w-4 rounded accent-blue-700" checked={selected.has(p._id)} onChange={() => toggle(p._id)} /></td>
-                  <td className="px-3 py-2.5 font-mono text-xs text-slate-600">{p.navexTrackingCode}</td>
+                  <td className="px-3 py-2.5 font-mono text-xs text-slate-600">
+                    <span className="inline-flex items-center gap-1.5">
+                      {verifying && (
+                        <span className="relative flex h-1.5 w-1.5 shrink-0">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+                          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-blue-600" />
+                        </span>
+                      )}
+                      {p.navexTrackingCode}
+                    </span>
+                  </td>
                   <td className="px-3 py-2.5 text-right font-medium text-slate-800 tabular-nums">{formatTND(p.codAmount)}</td>
                   <td className="px-3 py-2.5 text-xs text-slate-500">{frDate(p.navexCreatedAt)}</td>
                   <td className="px-3 py-2.5 text-slate-600 max-w-[180px] truncate">{p.designation || "—"}</td>
@@ -251,7 +285,8 @@ export default function ColisPage() {
                   <td className="px-3 py-2.5 text-xs text-slate-500">{frDate(p.returnAt)}</td>
                   <td className="px-3 py-2.5 text-xs text-slate-400">{frDate(p.updatedAt, true)}</td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         </div>

@@ -9,12 +9,22 @@ const SYNC_ROLES = ["SUPER_ADMIN", "ADMIN", "MANAGER", "FINANCE"]
 // First Delivery's /etat endpoint is limited to 1 req/sec — this sync stays sequential
 // and reports progress via SSE so the UI can show real-time status on large batches.
 const RATE_LIMIT_MS = 1000
+// Hard cap per parcel so a single hung request/DB call can never stall the whole batch —
+// the carrier call already aborts at 15s internally, this is a second safety net.
+const PER_PARCEL_TIMEOUT_MS = 20000
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Délai dépassé")), ms)),
+  ])
+}
 
 /**
  * "Synchroniser les paiements Navex" — the ONLY Navex sync.
  * For each EN_COURS parcel, ask Navex; if paid → status PAYE + paidAt.
  * Never changes a parcel to Retour (returns are physical-scan only).
- * Streams one SSE event per parcel checked (see sync-dialog.tsx for the consumer).
+ * Streams one SSE event per parcel checked (see sync-bar.tsx for the consumer).
  */
 export async function POST(request: NextRequest) {
   const session = await auth()
@@ -47,22 +57,28 @@ export async function POST(request: NextRequest) {
       for (const parcel of parcels as any[]) {
         if (request.signal.aborted) { cancelled = true; break }
 
+        let justPaid = false
+        let ok = false
+        let label = "Erreur"
+
         try {
-          const result = await navexService.getShipmentStatus(parcel.navexTrackingCode)
+          const result = await withTimeout(navexService.getShipmentStatus(parcel.navexTrackingCode), PER_PARCEL_TIMEOUT_MS)
           const raw = String(result.status_label || result.status || "")
-          let justPaid = false
+          ok = result.success
+          label = result.success ? raw : (result.error || "Erreur")
           if (result.success) {
             const set: Record<string, any> = { navexRawStatus: raw, lastNavexSyncAt: new Date() }
             if (isNavexPaid(raw)) { set.status = "PAYE"; set.paidAt = new Date(); justPaid = true }
-            await Order.findByIdAndUpdate(parcel._id, { $set: set })
+            await withTimeout(Order.findByIdAndUpdate(parcel._id, { $set: set }), PER_PARCEL_TIMEOUT_MS)
           }
-          if (justPaid) paid++
-          checked++
-          send(controller, { type: "progress", checked, total, paid, code: parcel.navexTrackingCode, ok: result.success, label: result.success ? raw : (result.error || "Erreur") })
         } catch (err: any) {
-          checked++
-          send(controller, { type: "progress", checked, total, paid, code: parcel.navexTrackingCode, ok: false, label: err.message || "Erreur" })
+          ok = false
+          label = err?.message || "Erreur"
         }
+
+        if (justPaid) paid++
+        checked++
+        send(controller, { type: "progress", checked, total, paid, code: parcel.navexTrackingCode, ok, justPaid, label })
 
         if (checked < total && !request.signal.aborted) {
           await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_MS))
