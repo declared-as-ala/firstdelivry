@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
   const agingAgg = await Order.aggregate([
     { $match: { ...base, status: "EN_COURS", handedToNavexAt: { $lte: threshold } } },
     { $addFields: { d: { $dateDiff: { startDate: "$handedToNavexAt", endDate: "$$NOW", unit: "day" } } } },
-    { $bucket: { groupBy: "$d", boundaries: [0, 7, 14, 30, 100000], default: 0, output: { count: { $sum: 1 }, cod: { $sum: "$codAmount" } } } },
+    { $bucket: { groupBy: "$d", boundaries: [0, 7, 14, 30, 100000], default: -1, output: { count: { $sum: 1 }, cod: { $sum: "$codAmount" } } } },
   ])
   const AGING = [
     { id: 0, label: `${delay}–6 j`, color: "#f59e0b" },
