@@ -93,6 +93,9 @@ export default function ColisPage() {
   // Live row updates while the First Delivery sync streams in — a parcel flips to
   // Payé the instant its own event arrives, no need to wait for the whole batch.
   const [justPaidCodes, setJustPaidCodes] = useState<Set<string>>(new Set())
+  // Cumulative COD moved from En cours → Payé so far this sync run, used to keep
+  // the summary cards live instead of showing a stale page-load snapshot.
+  const [paidCodDelta, setPaidCodDelta] = useState(0)
   const handleSyncProgress = useCallback((evt: SyncProgressEvent) => {
     if (!evt.justPaid || !evt.code) return
     const code = evt.code
@@ -100,8 +103,26 @@ export default function ColisPage() {
     setParcels((prev) => prev.map((p) => p.navexTrackingCode === code ? { ...p, status: "PAYE", paidAt: now, updatedAt: now } : p))
     setJustPaidCodes((s) => new Set(s).add(code))
     setTimeout(() => setJustPaidCodes((s) => { const n = new Set(s); n.delete(code); return n }), 2500)
-  }, [])
+    const amt = parcels.find((p) => p.navexTrackingCode === code)?.codAmount ?? 0
+    setPaidCodDelta((d) => d + amt)
+  }, [parcels])
   const sync = useNavexSync({ onProgress: handleSyncProgress, onDone: load })
+
+  function startSync() {
+    setPaidCodDelta(0)
+    sync.start()
+  }
+
+  // While a sync is running, the "En cours"/"Payé" totals shown on the cards use the
+  // sync's own live, freshly-queried counts instead of the page's last-loaded snapshot
+  // — otherwise the two numbers visibly disagree on a long sync (see sync-bar.tsx).
+  const liveSummary = sync.phase === "running"
+    ? {
+        ...summary,
+        enCours: { count: Math.max(0, sync.total - sync.checked), cod: Math.max(0, (summary.enCours?.cod ?? 0) - paidCodDelta) },
+        paye: { count: (summary.paye?.count ?? 0) + sync.paid, cod: (summary.paye?.cod ?? 0) + paidCodDelta },
+      }
+    : summary
 
   function toggle(id: string) { setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n }) }
   function toggleAll() { setSelected((s) => s.size === parcels.length ? new Set() : new Set(parcels.map((p) => p._id))) }
@@ -133,7 +154,7 @@ export default function ColisPage() {
                 <Trash2 className="h-4 w-4" />Supprimer ({selected.size})
               </button>
             )}
-            <Button onClick={sync.start} disabled={sync.phase === "running"}>
+            <Button onClick={startSync} disabled={sync.phase === "running"}>
               <RefreshCw className={`h-4 w-4 mr-2 ${sync.phase === "running" ? "animate-spin" : ""}`} />
               Synchroniser les paiements First Delivery
             </Button>
@@ -160,8 +181,8 @@ export default function ColisPage() {
               </>
             ) : (
               <>
-                <p className={`mt-1 text-3xl font-bold tabular-nums ${c.tone}`}>{summary[c.key]?.count ?? 0}</p>
-                <p className="mt-0.5 text-xs font-medium text-slate-400 tabular-nums">{formatTND(summary[c.key]?.cod)}</p>
+                <p className={`mt-1 text-3xl font-bold tabular-nums ${c.tone}`}>{liveSummary[c.key]?.count ?? 0}</p>
+                <p className="mt-0.5 text-xs font-medium text-slate-400 tabular-nums">{formatTND(liveSummary[c.key]?.cod)}</p>
               </>
             )}
           </button>
