@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react"
 import { toast } from "sonner"
 import { PageHeader, EmptyState, StatusBadge, formatTND } from "@/components/parcel-ui"
 import { SkeletonRows } from "@/components/skeletons"
-import { ChartCard, AgingBar, GroupedBar, COLORS } from "@/components/charts"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useNavexSync, SyncBar, type SyncProgressEvent } from "@/components/sync-bar"
 import { Button } from "@/components/ui/button"
 import { Search, Trash2, RefreshCw } from "lucide-react"
@@ -52,7 +52,6 @@ export default function ColisPage() {
   const [parcels, setParcels] = useState<Parcel[]>([])
   const [total, setTotal] = useState(0)
   const [summary, setSummary] = useState<Record<string, { count: number; cod: number }>>({})
-  const [charts, setCharts] = useState<{ activityByDay: any[]; agingBuckets: any[]; atRiskCod: number } | null>(null)
   const [delay, setDelay] = useState(3)
   const [delayInput, setDelayInput] = useState("3")
   const [isEmpty, setIsEmpty] = useState(false)
@@ -88,10 +87,6 @@ export default function ColisPage() {
     fetch(`/api/parcels?${p}`).then((r) => r.json())
       .then((j) => { setParcels(j.data.parcels); setTotal(j.data.total); setSummary(j.data.summary || {}); setIsEmpty(j.data.isEmpty); if (j.data.delay) { setDelay(j.data.delay); setDelayInput(String(j.data.delay)) } })
       .finally(() => setLoading(false))
-
-    const cp = new URLSearchParams()
-    applyDate(cp)
-    fetch(`/api/dashboard/stats?${cp}`).then((r) => r.json()).then((j) => setCharts(j.data)).catch(() => {})
   }, [q, view, applyDate])
   useEffect(() => { load() }, [load])
 
@@ -158,8 +153,17 @@ export default function ColisPage() {
           <button key={c.key} onClick={() => setView(view === c.view ? "" : c.view)}
             className={`rounded-xl border bg-white p-4 text-left transition ${view === c.view ? `border-transparent ring-2 ${c.ring}` : "border-slate-200 hover:bg-slate-50"}`}>
             <p className="text-xs font-medium text-slate-500">{c.label}</p>
-            <p className={`mt-1 text-3xl font-bold tabular-nums ${c.tone}`}>{summary[c.key]?.count ?? 0}</p>
-            <p className="mt-0.5 text-xs font-medium text-slate-400 tabular-nums">{formatTND(summary[c.key]?.cod)}</p>
+            {loading ? (
+              <>
+                <Skeleton className="mt-2 h-8 w-14 rounded-lg" />
+                <Skeleton className="mt-2 h-3 w-16 rounded" />
+              </>
+            ) : (
+              <>
+                <p className={`mt-1 text-3xl font-bold tabular-nums ${c.tone}`}>{summary[c.key]?.count ?? 0}</p>
+                <p className="mt-0.5 text-xs font-medium text-slate-400 tabular-nums">{formatTND(summary[c.key]?.cod)}</p>
+              </>
+            )}
           </button>
         ))}
       </div>
@@ -175,29 +179,6 @@ export default function ColisPage() {
         <span className="text-red-800">jours sans être Payé ni Retour.</span>
         <span className="ml-auto text-xs text-red-500">Modifiez et appuyez sur Entrée pour enregistrer</span>
       </div>
-
-      {/* Charts — focused on parcels to verify (anti-loss) */}
-      {charts && !isEmpty && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
-          <ChartCard
-            title="Colis Dhay3in par ancienneté"
-            subtitle={`${formatTND(charts.atRiskCod)} à risque — plus c'est vieux, plus c'est probablement perdu`}
-          >
-            {charts.agingBuckets.some((b) => b.value > 0) ? (
-              <AgingBar data={charts.agingBuckets} />
-            ) : <p className="text-sm text-slate-400 py-12 text-center">Aucun colis Dhay3in 🎉</p>}
-          </ChartCard>
-
-          <ChartCard title="Recouvrement par jour de remise" subtitle="Payé vs encore Dhay3in, par jour">
-            {charts.activityByDay.length > 0 ? (
-              <GroupedBar data={charts.activityByDay} xKey="day" series={[
-                { key: "payes", name: "Payé", color: COLORS.green },
-                { key: "averifier", name: "Dhay3in", color: COLORS.red },
-              ]} />
-            ) : <p className="text-sm text-slate-400 py-12 text-center">Aucune activité</p>}
-          </ChartCard>
-        </div>
-      )}
 
       {/* Filters */}
       <div className="space-y-2 mb-4">
