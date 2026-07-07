@@ -28,8 +28,13 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
  * "Synchroniser les paiements Navex" — the ONLY Navex sync.
  * For each EN_COURS parcel, ask Navex; if paid → status PAYE + paidAt.
  * Never changes a parcel to Retour (returns are physical-scan only).
- * The client (sync-bar.tsx) calls this repeatedly until `done: true` — always
- * safe to resume or retry since it only ever re-queries parcels still EN_COURS.
+ *
+ * The client (sync-bar.tsx) drives this as a fixed-size queue, not a fresh
+ * re-query every call: the first call (no `ids` in the body) takes a snapshot
+ * of every parcel currently EN_COURS and returns `remainingIds` for the rest;
+ * every following call passes those `ids` back so the total to process never
+ * moves. Any parcel scanned in *after* the snapshot is simply left for the
+ * next sync run instead of inflating the count of the run already in progress.
  */
 export async function POST(request: NextRequest) {
   const session = await auth()
@@ -42,10 +47,24 @@ export async function POST(request: NextRequest) {
 
   await connectDB()
 
-  const active = await Order.find({ status: "EN_COURS" }).select("navexTrackingCode").lean()
-  const parcels = (active as any[]).filter((p) => p.navexTrackingCode)
-  const remainingBefore = parcels.length
-  const batch = parcels.slice(0, BATCH_SIZE)
+  const body = await request.json().catch(() => null)
+  const requestedIds: string[] | undefined = Array.isArray(body?.ids) ? body.ids : undefined
+
+  let queue: { _id: any; navexTrackingCode: string }[]
+  if (requestedIds) {
+    // Resume an existing snapshot: only re-fetch these exact parcels, and drop any
+    // that left EN_COURS in the meantime (e.g. a manual edit) — never add new ones.
+    const docs = await Order.find({ _id: { $in: requestedIds }, status: "EN_COURS" }).select("navexTrackingCode").lean()
+    const byId = new Map((docs as any[]).map((d) => [String(d._id), d]))
+    queue = requestedIds.map((id) => byId.get(id)).filter((d): d is any => Boolean(d) && Boolean(d.navexTrackingCode))
+  } else {
+    // Fresh start: snapshot every parcel currently EN_COURS.
+    const docs = await Order.find({ status: "EN_COURS" }).select("navexTrackingCode").lean()
+    queue = (docs as any[]).filter((d) => d.navexTrackingCode)
+  }
+
+  const batch = queue.slice(0, BATCH_SIZE)
+  const rest = queue.slice(BATCH_SIZE)
 
   const items: { code: string; ok: boolean; justPaid: boolean; label: string }[] = []
   let paid = 0
@@ -81,6 +100,6 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({
     success: true,
-    data: { processed: batch.length, remainingBefore, paid, items, done: remainingBefore - batch.length <= 0 },
+    data: { processed: batch.length, paid, items, remainingIds: rest.map((p) => String(p._id)), done: rest.length === 0 },
   })
 }

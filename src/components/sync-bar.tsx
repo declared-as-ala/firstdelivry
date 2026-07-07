@@ -17,7 +17,7 @@ export interface SyncProgressEvent {
 }
 
 interface SyncBatchItem { code: string; ok: boolean; justPaid: boolean; label: string }
-interface SyncBatchData { processed: number; remainingBefore: number; paid: number; items: SyncBatchItem[]; done: boolean }
+interface SyncBatchData { processed: number; paid: number; items: SyncBatchItem[]; remainingIds: string[]; done: boolean }
 
 const MAX_RETRIES = 5
 const RETRY_BACKOFF_MS = 2000
@@ -51,6 +51,10 @@ export function useNavexSync(opts: { onProgress?: (e: SyncProgressEvent) => void
     let checkedSoFar = 0
     let paidSoFar = 0
     let retry = 0
+    // undefined = take a fresh snapshot of every EN_COURS parcel right now; once set,
+    // every following call passes back the same fixed queue so the total never moves —
+    // a parcel scanned in mid-run isn't part of this run's snapshot at all.
+    let ids: string[] | undefined = undefined
 
     while (true) {
       if (manualStopRef.current) { setPhase("cancelled"); opts.onDone?.(); return }
@@ -60,7 +64,12 @@ export function useNavexSync(opts: { onProgress?: (e: SyncProgressEvent) => void
 
       let json: any
       try {
-        const res = await fetch("/api/parcels/sync", { method: "POST", signal: controller.signal })
+        const res = await fetch("/api/parcels/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids }),
+          signal: controller.signal,
+        })
         json = await res.json().catch(() => null)
       } catch {
         if (manualStopRef.current) { setPhase("cancelled"); opts.onDone?.(); return }
@@ -85,26 +94,29 @@ export function useNavexSync(opts: { onProgress?: (e: SyncProgressEvent) => void
       setReconnectAttempt(0)
 
       const data = json.data as SyncBatchData
-      if (data.remainingBefore === 0) {
+      if (data.items.length === 0 && data.remainingIds.length === 0) {
         setPhase("done")
         toast.success("Aucun colis en cours à vérifier")
         opts.onDone?.()
         return
       }
 
-      const remainingAfter = Math.max(0, data.remainingBefore - data.items.length)
+      // Fixed for this whole batch: checked-so-far + about-to-check + still-queued —
+      // this sum is the snapshot size and stays constant across the entire run.
+      const fixedTotal = checkedSoFar + data.items.length + data.remainingIds.length
       for (const item of data.items) {
         if (manualStopRef.current) { setPhase("cancelled"); opts.onDone?.(); return }
         checkedSoFar++
         if (item.justPaid) paidSoFar++
-        const totalEstimate = checkedSoFar + remainingAfter
         setCurrent(item.code)
         setChecked(checkedSoFar)
         setPaid(paidSoFar)
-        setTotal(totalEstimate)
-        opts.onProgress?.({ code: item.code, ok: item.ok, justPaid: item.justPaid, label: item.label, checked: checkedSoFar, total: totalEstimate, paid: paidSoFar })
+        setTotal(fixedTotal)
+        opts.onProgress?.({ code: item.code, ok: item.ok, justPaid: item.justPaid, label: item.label, checked: checkedSoFar, total: fixedTotal, paid: paidSoFar })
         await new Promise((r) => setTimeout(r, REVEAL_STAGGER_MS))
       }
+
+      ids = data.remainingIds
 
       if (data.done) {
         setPhase("done")
