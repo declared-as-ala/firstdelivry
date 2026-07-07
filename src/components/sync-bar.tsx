@@ -5,10 +5,8 @@ import { toast } from "sonner"
 import { Loader2, CheckCircle2, XCircle, X, RefreshCw } from "lucide-react"
 
 type Phase = "idle" | "running" | "done" | "cancelled" | "error"
-type AttemptOutcome = "done" | "cancelled" | "retry" | "fatal"
 
 export interface SyncProgressEvent {
-  type: "start" | "progress" | "done"
   code?: string
   ok?: boolean
   justPaid?: boolean
@@ -16,23 +14,23 @@ export interface SyncProgressEvent {
   checked: number
   total: number
   paid: number
-  cancelled?: boolean
 }
 
-// Worst case per parcel is ~2x the backend's own 20s per-call timeout, plus the
-// 1s rate-limit delay — this must comfortably exceed that so it never fires on a
-// merely-slow parcel, only on a genuinely dead connection.
-const STALL_MS = 45000
-const WATCHDOG_CHECK_MS = 5000
-const MAX_RECONNECTS = 8
-const RECONNECT_BACKOFF_MS = 1500
+interface SyncBatchItem { code: string; ok: boolean; justPaid: boolean; label: string }
+interface SyncBatchData { processed: number; remainingBefore: number; paid: number; items: SyncBatchItem[]; done: boolean }
 
-/** Drives the First Delivery payment sync over SSE. Never blocks the UI —
- * the table stays visible and interactive while this runs in the background.
- * If the connection goes silent for too long (dropped wifi, laptop sleep, a
- * proxy killing an idle socket, …) it automatically reconnects: the backend
- * only ever re-checks parcels still EN_COURS, so resuming is always safe and
- * never double-counts or re-flags an already-paid parcel. */
+const MAX_RETRIES = 5
+const RETRY_BACKOFF_MS = 2000
+// Purely cosmetic: reveals items within a batch one at a time instead of all at
+// once, so a batch of 5 still feels like watching each parcel get checked.
+const REVEAL_STAGGER_MS = 180
+
+/** Drives the First Delivery payment sync via short repeated batch calls (not a
+ * long-lived stream) — each call finishes in a few seconds, so no reverse proxy,
+ * load balancer, or CDN idle/duration limit ever gets a chance to silently kill
+ * it mid-flight. The table stays visible and interactive the whole time.
+ * Resuming after any failure is always safe: the backend only ever re-checks
+ * parcels still EN_COURS, so it can never double-count or re-flag a paid one. */
 export function useNavexSync(opts: { onProgress?: (e: SyncProgressEvent) => void; onDone?: () => void }) {
   const [phase, setPhase] = useState<Phase>("idle")
   const [total, setTotal] = useState(0)
@@ -44,128 +42,76 @@ export function useNavexSync(opts: { onProgress?: (e: SyncProgressEvent) => void
 
   const abortRef = useRef<AbortController | null>(null)
   const manualStopRef = useRef(false)
-  const lastEventAtRef = useRef(0)
-  const checkedBaseRef = useRef(0)
-  const paidBaseRef = useRef(0)
-
-  async function runAttempt(controller: AbortController): Promise<AttemptOutcome> {
-    let attemptChecked = 0
-    let attemptPaid = 0
-
-    try {
-      const res = await fetch("/api/parcels/sync", { method: "POST", signal: controller.signal })
-      const contentType = res.headers.get("content-type") || ""
-
-      if (!contentType.includes("text/event-stream")) {
-        const j = await res.json().catch(() => null)
-        if (j?.success) {
-          setTotal(checkedBaseRef.current + (j.data.checked || 0))
-          setChecked(checkedBaseRef.current + (j.data.checked || 0))
-          setPaid(paidBaseRef.current + (j.data.paid || 0))
-          setPhase("done")
-          toast.success(`${j.data.paid} colis marqués Payé`)
-          opts.onDone?.()
-          return "done"
-        }
-        setPhase("error")
-        setErrorMsg(j?.error?.message || j?.error || "Synchronisation indisponible")
-        return "fatal"
-      }
-
-      const reader = res.body!.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ""
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        lastEventAtRef.current = Date.now()
-        buffer += decoder.decode(value, { stream: true })
-        const chunks = buffer.split("\n\n")
-        buffer = chunks.pop() || ""
-
-        for (const chunk of chunks) {
-          const line = chunk.trim()
-          if (!line.startsWith("data:")) continue
-          let evt: SyncProgressEvent
-          try { evt = JSON.parse(line.slice(5).trim()) } catch { continue }
-
-          if (evt.type === "start") {
-            setReconnectAttempt(0)
-            setTotal(checkedBaseRef.current + evt.total)
-          } else if (evt.type === "progress") {
-            setReconnectAttempt(0)
-            attemptChecked = evt.checked
-            attemptPaid = evt.paid
-            setChecked(checkedBaseRef.current + evt.checked)
-            setPaid(paidBaseRef.current + evt.paid)
-            setCurrent(evt.code || null)
-            opts.onProgress?.(evt)
-          } else if (evt.type === "done") {
-            attemptChecked = evt.checked
-            attemptPaid = evt.paid
-            checkedBaseRef.current += evt.checked
-            paidBaseRef.current += evt.paid
-            setTotal(checkedBaseRef.current)
-            setChecked(checkedBaseRef.current)
-            setPaid(paidBaseRef.current)
-            setPhase(evt.cancelled ? "cancelled" : "done")
-            if (!evt.cancelled) {
-              toast.success(checkedBaseRef.current === 0 ? "Aucun colis en cours à vérifier" : `${paidBaseRef.current} colis marqués Payé sur ${checkedBaseRef.current} vérifiés`)
-            }
-            opts.onDone?.()
-            return evt.cancelled ? "cancelled" : "done"
-          }
-        }
-      }
-
-      // Connection closed without an explicit "done" — treat as a drop and reconnect.
-      checkedBaseRef.current += attemptChecked
-      paidBaseRef.current += attemptPaid
-      return "retry"
-    } catch {
-      checkedBaseRef.current += attemptChecked
-      paidBaseRef.current += attemptPaid
-      if (manualStopRef.current) {
-        setPhase("cancelled")
-        opts.onDone?.()
-        return "cancelled"
-      }
-      return "retry"
-    }
-  }
 
   async function start() {
     setPhase("running")
     manualStopRef.current = false
-    checkedBaseRef.current = 0
-    paidBaseRef.current = 0
     setTotal(0); setChecked(0); setPaid(0); setCurrent(null); setErrorMsg(""); setReconnectAttempt(0)
 
-    let attempt = 0
+    let checkedSoFar = 0
+    let paidSoFar = 0
+    let retry = 0
+
     while (true) {
+      if (manualStopRef.current) { setPhase("cancelled"); opts.onDone?.(); return }
+
       const controller = new AbortController()
       abortRef.current = controller
-      lastEventAtRef.current = Date.now()
 
-      const watchdog = setInterval(() => {
-        if (Date.now() - lastEventAtRef.current > STALL_MS) controller.abort()
-      }, WATCHDOG_CHECK_MS)
+      let json: any
+      try {
+        const res = await fetch("/api/parcels/sync", { method: "POST", signal: controller.signal })
+        json = await res.json().catch(() => null)
+      } catch {
+        if (manualStopRef.current) { setPhase("cancelled"); opts.onDone?.(); return }
+        retry++
+        if (retry > MAX_RETRIES) {
+          setPhase("error")
+          setErrorMsg("Connexion perdue à plusieurs reprises. Réessayez plus tard.")
+          return
+        }
+        setReconnectAttempt(retry)
+        await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS))
+        continue
+      }
 
-      const outcome = await runAttempt(controller)
-      clearInterval(watchdog)
-
-      if (outcome === "done" || outcome === "cancelled" || outcome === "fatal") return
-      if (manualStopRef.current) return
-
-      attempt++
-      if (attempt > MAX_RECONNECTS) {
+      if (!json?.success) {
         setPhase("error")
-        setErrorMsg("Connexion perdue à plusieurs reprises. Réessayez plus tard.")
+        setErrorMsg(json?.error?.message || json?.error || "Synchronisation indisponible")
         return
       }
-      setReconnectAttempt(attempt)
-      await new Promise((r) => setTimeout(r, RECONNECT_BACKOFF_MS))
+
+      retry = 0
+      setReconnectAttempt(0)
+
+      const data = json.data as SyncBatchData
+      if (data.remainingBefore === 0) {
+        setPhase("done")
+        toast.success("Aucun colis en cours à vérifier")
+        opts.onDone?.()
+        return
+      }
+
+      const remainingAfter = Math.max(0, data.remainingBefore - data.items.length)
+      for (const item of data.items) {
+        if (manualStopRef.current) { setPhase("cancelled"); opts.onDone?.(); return }
+        checkedSoFar++
+        if (item.justPaid) paidSoFar++
+        const totalEstimate = checkedSoFar + remainingAfter
+        setCurrent(item.code)
+        setChecked(checkedSoFar)
+        setPaid(paidSoFar)
+        setTotal(totalEstimate)
+        opts.onProgress?.({ code: item.code, ok: item.ok, justPaid: item.justPaid, label: item.label, checked: checkedSoFar, total: totalEstimate, paid: paidSoFar })
+        await new Promise((r) => setTimeout(r, REVEAL_STAGGER_MS))
+      }
+
+      if (data.done) {
+        setPhase("done")
+        toast.success(`${paidSoFar} colis marqués Payé sur ${checkedSoFar} vérifiés`)
+        opts.onDone?.()
+        return
+      }
     }
   }
 
@@ -219,7 +165,7 @@ export function SyncBar({ sync }: { sync: ReturnType<typeof useNavexSync> }) {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2 text-sm font-medium text-slate-700">
             <span>
-              {reconnecting && `Connexion interrompue — reconnexion automatique (tentative ${reconnectAttempt}/${MAX_RECONNECTS})…`}
+              {reconnecting && `Connexion interrompue — nouvelle tentative (${reconnectAttempt}/${MAX_RETRIES})…`}
               {running && !reconnecting && `Synchronisation en cours — ${checked}/${total} vérifiés (${pct}%)`}
               {phase === "done" && `Synchronisation terminée — ${paid} colis marqués Payé sur ${checked} vérifiés`}
               {phase === "cancelled" && `Synchronisation annulée — ${checked}/${total} vérifiés avant l'arrêt`}
