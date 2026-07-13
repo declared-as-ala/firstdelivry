@@ -6,6 +6,7 @@ import { ParcelScan } from "@/lib/models/ParcelScan"
 import { scanSchema } from "@/lib/validators"
 import { decideRemiseExisting, decideReturnReceive } from "@/lib/scan-engine"
 import { navexService } from "@/lib/navex/navex-client"
+import { tunisStartOfDay } from "@/lib/tz"
 
 const SCAN_ROLES = ["SUPER_ADMIN", "ADMIN", "MANAGER", "WAREHOUSE_OPERATOR"]
 
@@ -20,6 +21,8 @@ function parcelInfo(p: any) {
     handedToNavexAt: p.handedToNavexAt,
     paidAt: p.paidAt,
     returnAt: p.returnAt,
+    clientPhone: p.clientPhone || "",
+    clientName: p.clientName || "",
   }
 }
 
@@ -80,9 +83,41 @@ export async function POST(req: NextRequest) {
 
     const lookup = await navexService.getParcelByTrackingCode(trackingCode)
     if (!lookup.configured) { await log("BLOCKED", null, "First Delivery non configuré"); return reject("NOT_CONFIGURED", "Recherche First Delivery indisponible. Configurez l'endpoint dans Paramètres.") }
-    if (!lookup.found || !lookup.parcel) { await log("UNKNOWN", null, "Introuvable chez First Delivery"); return reject("UNKNOWN", "Code First Delivery introuvable chez First Delivery. Aucun colis n'a été créé.") }
+    
+    if (lookup.error) {
+      await log("API_ERROR", null, lookup.error)
+      return reject("API_ERROR", `Erreur technique lors de la recherche chez First Delivery (${lookup.error}). Veuillez réessayer.`)
+    }
+
+    if (!lookup.found || !lookup.parcel) { 
+      await log("UNKNOWN", null, "Introuvable chez First Delivery")
+      return reject("UNKNOWN", "Code First Delivery introuvable chez First Delivery. Aucun colis n'a été créé.") 
+    }
 
     const d = lookup.parcel
+
+    // Check for double parcel (same customer phone number today)
+    const phoneDigits = d.clientPhone ? d.clientPhone.replace(/\D/g, "") : ""
+    let isDouble = false
+    let doubleTrackingCodes: string[] = []
+
+    if (phoneDigits) {
+      const todayStart = tunisStartOfDay()
+      const todayOrders = await Order.find({
+        handedToNavexAt: { $gte: todayStart }
+      }).select("navexTrackingCode clientPhone").lean()
+
+      const matches = todayOrders.filter(o => {
+        const oDigits = o.clientPhone ? o.clientPhone.replace(/\D/g, "") : ""
+        return oDigits && oDigits.slice(-8) === phoneDigits.slice(-8)
+      })
+
+      if (matches.length > 0) {
+        isDouble = true
+        doubleTrackingCodes = matches.map(m => m.navexTrackingCode)
+      }
+    }
+
     const created = await Order.create({
       navexTrackingCode: trackingCode,
       codAmount: d.codAmount,
@@ -93,9 +128,20 @@ export async function POST(req: NextRequest) {
       handedToNavexAt: new Date(),
       lastNavexSyncAt: new Date(),
       scannedBy: session.user.id,
+      clientPhone: d.clientPhone || undefined,
+      clientName: d.clientName || undefined,
     })
-    await log("OK", created._id, "Colis remis à Navex")
-    return NextResponse.json({ success: true, result: "OK", parcel: parcelInfo(created) })
+    await log("OK", created._id, isDouble ? `Colis double (avec ${doubleTrackingCodes.join(", ")})` : "Colis remis à Navex")
+    
+    return NextResponse.json({ 
+      success: true, 
+      result: "OK", 
+      parcel: {
+        ...parcelInfo(created),
+        isDouble,
+        doubleTrackingCodes
+      } 
+    })
   } catch (error: any) {
     return NextResponse.json({ success: false, error: { code: "SCAN_ERROR", message: error.message || "Erreur lors du scan" } }, { status: 500 })
   }

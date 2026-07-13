@@ -32,6 +32,9 @@ export interface IOrder extends Document {
   scannedBy?: mongoose.Types.ObjectId
   returnBy?: mongoose.Types.ObjectId
 
+  clientPhone?: string
+  clientName?: string
+
   createdAt: Date
   updatedAt: Date
 }
@@ -53,12 +56,16 @@ const OrderSchema = new Schema<IOrder>(
 
     scannedBy: { type: Schema.Types.ObjectId, ref: "User" },
     returnBy: { type: Schema.Types.ObjectId, ref: "User" },
+
+    clientPhone: { type: String },
+    clientName: { type: String },
   },
   { timestamps: true }
 )
 
 OrderSchema.index({ status: 1 })
 OrderSchema.index({ handedToNavexAt: -1 })
+OrderSchema.index({ clientPhone: 1 }) // Index for fast double check
 
 export const Order = mongoose.models.Order || mongoose.model<IOrder>("Order", OrderSchema)
 export const Parcel = Order

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react"
 import { PageHeader, formatTND, StatusBadge } from "@/components/parcel-ui"
-import { CheckCircle2, XCircle, PackageCheck, CornerUpLeft, Search } from "lucide-react"
+import { CheckCircle2, XCircle, PackageCheck, CornerUpLeft, Search, AlertTriangle } from "lucide-react"
 
 type Mode = "HANDOVER_PREP" | "RETURN_RECEIVE" | "VERIFY"
 
@@ -90,16 +90,60 @@ export default function ScannerPage() {
             className="scan-input w-full h-20 rounded-2xl border-2 border-slate-300 bg-white px-6 text-3xl font-mono tracking-wider text-slate-900 focus:border-blue-600" />
 
           {last && (
-            <div className={`rounded-2xl border-2 p-6 ${last.ok ? "border-green-300 bg-green-50" : "border-red-300 bg-red-50"}`}>
+            <div className={`rounded-2xl border-2 p-6 ${
+              last.ok 
+                ? last.parcel?.isDouble 
+                  ? "border-amber-300 bg-amber-50/30" 
+                  : "border-green-300 bg-green-50" 
+                : "border-red-300 bg-red-50"
+            }`}>
               <div className="flex items-center gap-3">
-                {last.ok ? <CheckCircle2 className="h-10 w-10 text-green-600" /> : <XCircle className="h-10 w-10 text-red-600" />}
+                {last.ok ? (
+                  last.parcel?.isDouble ? (
+                    <AlertTriangle className="h-10 w-10 text-amber-600" />
+                  ) : (
+                    <CheckCircle2 className="h-10 w-10 text-green-600" />
+                  )
+                ) : (
+                  <XCircle className="h-10 w-10 text-red-600" />
+                )}
                 <div>
-                  <p className={`text-xl font-bold ${last.ok ? "text-green-800" : "text-red-800"}`}>{last.ok ? successTitle : last.message}</p>
+                  <p className={`text-xl font-bold ${
+                    last.ok 
+                      ? last.parcel?.isDouble 
+                        ? "text-amber-800" 
+                        : "text-green-800" 
+                      : "text-red-800"
+                  }`}>
+                    {last.ok 
+                      ? last.parcel?.isDouble 
+                        ? "Colis Double Remis" 
+                        : successTitle 
+                      : last.message}
+                  </p>
                   <p className="text-sm font-mono text-slate-500">{last.code}</p>
                 </div>
               </div>
+
+              {last.ok && last.parcel?.isDouble && (
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900 shadow-sm">
+                  <div className="flex items-center gap-2 font-bold text-amber-950 text-sm">
+                    <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                    <span>Attention : Colis double détecté !</span>
+                  </div>
+                  <p className="mt-1 text-xs text-amber-850">
+                    Ce destinataire a déjà un autre colis remis aujourd'hui :{" "}
+                    <span className="font-mono font-bold bg-amber-100 px-1.5 py-0.5 rounded text-amber-950 border border-amber-200">
+                      {last.parcel.doubleTrackingCodes?.join(", ")}
+                    </span>
+                  </p>
+                </div>
+              )}
+
               {last.parcel && (
-                <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+                <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm border-t border-slate-200/60 pt-4">
+                  <Info label="Client" value={last.parcel.clientName || "—"} />
+                  <Info label="Téléphone" value={last.parcel.clientPhone || "—"} />
                   <Info label="COD" value={formatTND(last.parcel.codAmount)} />
                   <Info label="Désignation" value={last.parcel.designation || "—"} />
                   <Info label="Date ajout First Delivery" value={frDate(last.parcel.navexCreatedAt)} />

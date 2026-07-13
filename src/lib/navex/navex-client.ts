@@ -105,115 +105,132 @@ async function makeFirstDeliveryRequest<T>(
   url: string,
   method: string,
   body?: any,
-  trackingCode?: string
+  trackingCode?: string,
+  retries = 2
 ): Promise<T> {
-  const start = Date.now()
-  const cfg = getConfig()
+  let attempt = 0
+  while (true) {
+    const start = Date.now()
+    const cfg = getConfig()
 
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT)
-
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-    }
-
-    if (cfg.token) {
-      headers["Authorization"] = `Bearer ${cfg.token}`
-    }
-
-    const options: RequestInit = {
-      method,
-      headers,
-      signal: controller.signal,
-    }
-
-    if (body !== undefined) {
-      options.body = JSON.stringify(body)
-    }
-
-    const response = await fetch(url, options)
-    clearTimeout(timeout)
-
-    const responseText = await response.text()
-    const duration = Date.now() - start
-
-    let data: T
     try {
-      data = JSON.parse(responseText)
-    } catch {
-      data = { success: false, error: responseText } as unknown as T
-    }
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT)
 
-    await logNavexCall({
-      endpoint: url,
-      method,
-      statusCode: response.status,
-      requestBody: body ? JSON.stringify(body) : undefined,
-      responseBody: responseText.substring(0, 2000),
-      duration,
-      trackingCode,
-      success: response.ok,
-    })
-
-    if (!response.ok) {
-      if (response.status === 401 || response.status === 403) {
-        throw new NavexAuthenticationError()
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
       }
-      throw new NavexError(
-        `Erreur First Delivery: ${response.status}`,
-        "FIRST_DELIVERY_API_ERROR",
-        response.status,
-        data
-      )
-    }
 
-    return data
-  } catch (error: any) {
-    const duration = Date.now() - start
+      if (cfg.token) {
+        headers["Authorization"] = `Bearer ${cfg.token}`
+      }
 
-    if (error instanceof NavexError) {
-      await logNavexCall({
-        endpoint: url,
+      const options: RequestInit = {
         method,
-        statusCode: error.statusCode,
+        headers,
+        signal: controller.signal,
+      }
+
+      if (body !== undefined) {
+        options.body = JSON.stringify(body)
+      }
+
+      const response = await fetch(url, options)
+      clearTimeout(timeout)
+
+      const responseText = await response.text()
+      const duration = Date.now() - start
+
+      let data: T
+      try {
+        data = JSON.parse(responseText)
+      } catch {
+        data = { success: false, error: responseText } as unknown as T
+      }
+
+      await logNavexCall({
+        endpoint: `${url} (Attempt ${attempt + 1})`,
+        method,
+        statusCode: response.status,
         requestBody: body ? JSON.stringify(body) : undefined,
-        errorMessage: error.message,
+        responseBody: responseText.substring(0, 2000),
         duration,
         trackingCode,
-        success: false,
+        success: response.ok,
       })
-      throw error
-    }
 
-    if ((error as Error).name === "AbortError") {
-      const timeoutError = new NavexTimeoutError()
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          throw new NavexAuthenticationError()
+        }
+
+        // Retry on rate limit (429) or transient server errors (>= 500)
+        if ((response.status === 429 || response.status >= 500) && attempt < retries) {
+          attempt++
+          const waitTime = attempt * 1000
+          await new Promise((resolve) => setTimeout(resolve, waitTime))
+          continue
+        }
+
+        throw new NavexError(
+          `Erreur First Delivery: ${response.status}`,
+          "FIRST_DELIVERY_API_ERROR",
+          response.status,
+          data
+        )
+      }
+
+      return data
+    } catch (error: any) {
+      const duration = Date.now() - start
+
+      // Authentication errors should not be retried
+      if (error instanceof NavexAuthenticationError) {
+        throw error
+      }
+
+      if (error instanceof NavexError) {
+        // If it's already a NavexError, it was logged above, we throw it
+        throw error
+      }
+
+      // Retry on network timeouts or other request errors
+      if (attempt < retries) {
+        attempt++
+        const waitTime = attempt * 1000
+        await new Promise((resolve) => setTimeout(resolve, waitTime))
+        continue
+      }
+
+      if ((error as Error).name === "AbortError") {
+        const timeoutError = new NavexTimeoutError()
+        await logNavexCall({
+          endpoint: `${url} (Attempt ${attempt + 1} - Timeout)`,
+          method,
+          errorMessage: timeoutError.message,
+          duration,
+          trackingCode,
+          success: false,
+        })
+        throw timeoutError
+      }
+
+      const unknownError = new NavexError(
+        (error as Error).message || "Erreur inconnue First Delivery",
+        "FIRST_DELIVERY_UNKNOWN_ERROR",
+        500
+      )
       await logNavexCall({
-        endpoint: url,
+        endpoint: `${url} (Attempt ${attempt + 1} - Error)`,
         method,
-        errorMessage: timeoutError.message,
+        errorMessage: unknownError.message,
         duration,
         trackingCode,
         success: false,
       })
-      throw timeoutError
+      throw unknownError
     }
-
-    const unknownError = new NavexError(
-      (error as Error).message || "Erreur inconnue First Delivery",
-      "FIRST_DELIVERY_UNKNOWN_ERROR",
-      500
-    )
-    await logNavexCall({
-      endpoint: url,
-      method,
-      errorMessage: unknownError.message,
-      duration,
-      trackingCode,
-      success: false,
-    })
-    throw unknownError
   }
 }
 
