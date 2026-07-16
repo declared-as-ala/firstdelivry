@@ -4,12 +4,15 @@ import { connectDB } from "@/lib/db"
 import { Order } from "@/lib/models/Order"
 import { getVerifyDelay } from "@/lib/settings-cache"
 import { statusViewFilter, dateBasisField, dateRangeFilter, verifyThreshold } from "@/lib/parcel-status"
+import { tunisStartOfDay } from "@/lib/tz"
 
 /**
  * Colis list. Query: view (en_cours|paye|retour|a_verifier),
  * range (today|yesterday|7d|30d|custom + from,to), dateBasis (remise|paiement|retour),
- * q (Code Navex / Désignation / COD).
- * Also returns a `summary` (counts per status) for the current date+search filter.
+ * q (Code Navex / Désignation / Client / Téléphone / COD).
+ * Also returns a `summary` (counts per status, respects the current filter) and a
+ * `today` tally (handed-over / returned counts for the real Africa/Tunis calendar
+ * day, always — independent of whatever filter is applied on the page).
  */
 export async function GET(req: NextRequest) {
   const session = await auth()
@@ -27,7 +30,7 @@ export async function GET(req: NextRequest) {
   const q = sp.get("q")?.trim()
   if (q) {
     const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
-    const or: any[] = [{ navexTrackingCode: rx }, { designation: rx }]
+    const or: any[] = [{ navexTrackingCode: rx }, { designation: rx }, { clientName: rx }, { clientPhone: rx }]
     const num = parseFloat(q)
     if (!isNaN(num)) or.push({ codAmount: num })
     baseFilter.$or = or
@@ -35,8 +38,9 @@ export async function GET(req: NextRequest) {
 
   const filter = { ...baseFilter, ...statusViewFilter(sp.get("view") || "", delay) }
   const limit = Math.min(parseInt(sp.get("limit") || "300", 10), 2000)
+  const todayStart = tunisStartOfDay()
 
-  const [parcels, total, byStatus, avAgg, isEmptyCount] = await Promise.all([
+  const [parcels, total, byStatus, avAgg, isEmptyCount, todayHandedAgg, todayReturnAgg] = await Promise.all([
     Order.find(filter).sort({ handedToNavexAt: -1, updatedAt: -1 }).limit(limit).lean(),
     Order.countDocuments(filter),
     Order.aggregate([{ $match: baseFilter }, { $group: { _id: "$status", count: { $sum: 1 }, cod: { $sum: "$codAmount" } } }]),
@@ -45,6 +49,16 @@ export async function GET(req: NextRequest) {
       { $group: { _id: null, count: { $sum: 1 }, cod: { $sum: "$codAmount" } } },
     ]),
     Order.estimatedDocumentCount(),
+    // "Today" tallies always reflect the real calendar day (Africa/Tunis), regardless
+    // of whatever date/view filter is currently applied on the page.
+    Order.aggregate([
+      { $match: { handedToNavexAt: { $gte: todayStart } } },
+      { $group: { _id: null, count: { $sum: 1 }, cod: { $sum: "$codAmount" } } },
+    ]),
+    Order.aggregate([
+      { $match: { returnAt: { $gte: todayStart } } },
+      { $group: { _id: null, count: { $sum: 1 }, cod: { $sum: "$codAmount" } } },
+    ]),
   ])
 
   const pick = (s: string) => {
@@ -58,6 +72,12 @@ export async function GET(req: NextRequest) {
     retour: pick("RETOUR"),
     aVerifier: { count: av.count || 0, cod: av.cod || 0 },
   }
+  const todayHanded = (todayHandedAgg as any[])[0] || { count: 0, cod: 0 }
+  const todayReturn = (todayReturnAgg as any[])[0] || { count: 0, cod: 0 }
+  const today = {
+    handedOver: { count: todayHanded.count || 0, cod: todayHanded.cod || 0 },
+    returned: { count: todayReturn.count || 0, cod: todayReturn.cod || 0 },
+  }
 
-  return NextResponse.json({ success: true, data: { parcels, total, summary, delay, isEmpty: isEmptyCount === 0 } })
+  return NextResponse.json({ success: true, data: { parcels, total, summary, today, delay, isEmpty: isEmptyCount === 0 } })
 }

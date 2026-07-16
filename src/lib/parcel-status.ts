@@ -1,4 +1,4 @@
-import { tunisStartOfDay } from "@/lib/tz"
+import { tunisStartOfDay, tunisDayStart } from "@/lib/tz"
 
 /** 3 statuses only. */
 export const STATUS_LABEL: Record<string, string> = {
@@ -46,7 +46,11 @@ export function resolveDateRange(range?: string, from?: string, to?: string): { 
     case "yesterday": return { start: new Date(todayStart.getTime() - DAY), end: todayStart }
     case "7d": return { start: new Date(now.getTime() - 7 * DAY) }
     case "30d": return { start: new Date(now.getTime() - 30 * DAY) }
-    case "custom": return { start: from ? new Date(from) : undefined, end: to ? new Date(to) : undefined }
+    // from/to are plain YYYY-MM-DD strings from a date input, both inclusive —
+    // parsed as Tunis midnight, not UTC midnight (`new Date(iso)`), or the window
+    // silently shifts by an hour and can miss everything scanned near the day
+    // boundary. `to` is inclusive, so the exclusive upper bound is the day after.
+    case "custom": return { start: from ? tunisDayStart(from) : undefined, end: to ? new Date(tunisDayStart(to).getTime() + DAY) : undefined }
     default: return {}
   }
 }

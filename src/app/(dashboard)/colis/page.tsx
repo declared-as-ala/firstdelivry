@@ -52,6 +52,7 @@ export default function ColisPage() {
   const [parcels, setParcels] = useState<Parcel[]>([])
   const [total, setTotal] = useState(0)
   const [summary, setSummary] = useState<Record<string, { count: number; cod: number }>>({})
+  const [today, setToday] = useState<{ handedOver: { count: number; cod: number }; returned: { count: number; cod: number } }>({ handedOver: { count: 0, cod: 0 }, returned: { count: 0, cod: 0 } })
   const [delay, setDelay] = useState(3)
   const [delayInput, setDelayInput] = useState("3")
   const [isEmpty, setIsEmpty] = useState(false)
@@ -65,11 +66,12 @@ export default function ColisPage() {
   const [to, setTo] = useState("")
   const [day, setDay] = useState("")
 
-  // Apply date params: an exact day takes priority over the range buttons.
+  // Apply date params: an exact day takes priority over the range buttons. `from`/`to`
+  // are both inclusive calendar days — the server (Africa/Tunis-aware) resolves the
+  // exact boundaries, so no date arithmetic needs to happen here.
   const applyDate = useCallback((p: URLSearchParams) => {
     if (day) {
-      const next = new Date(day); next.setDate(next.getDate() + 1)
-      p.set("range", "custom"); p.set("dateBasis", basis); p.set("from", day); p.set("to", next.toISOString().slice(0, 10))
+      p.set("range", "custom"); p.set("dateBasis", basis); p.set("from", day); p.set("to", day)
     } else if (range) {
       p.set("range", range); p.set("dateBasis", basis)
       if (range === "custom") { if (from) p.set("from", from); if (to) p.set("to", to) }
@@ -85,7 +87,11 @@ export default function ColisPage() {
     applyDate(p)
     p.set("limit", "1000")
     fetch(`/api/parcels?${p}`).then((r) => r.json())
-      .then((j) => { setParcels(j.data.parcels); setTotal(j.data.total); setSummary(j.data.summary || {}); setIsEmpty(j.data.isEmpty); if (j.data.delay) { setDelay(j.data.delay); setDelayInput(String(j.data.delay)) } })
+      .then((j) => {
+        setParcels(j.data.parcels); setTotal(j.data.total); setSummary(j.data.summary || {})
+        if (j.data.today) setToday(j.data.today)
+        setIsEmpty(j.data.isEmpty); if (j.data.delay) { setDelay(j.data.delay); setDelayInput(String(j.data.delay)) }
+      })
       .finally(() => setLoading(false))
   }, [q, view, applyDate])
   useEffect(() => { load() }, [load])
@@ -189,6 +195,24 @@ export default function ColisPage() {
         ))}
       </div>
 
+      {/* Today's operational totals — always the real calendar day, regardless of filters */}
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <div className="flex items-center justify-between rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3">
+          <div>
+            <p className="text-xs font-medium text-indigo-700">Scannés remis à First Delivery aujourd’hui</p>
+            <p className="mt-0.5 text-xs text-indigo-400 tabular-nums">{formatTND(today.handedOver.cod)}</p>
+          </div>
+          <p className="text-2xl font-bold tabular-nums text-indigo-700">{today.handedOver.count}</p>
+        </div>
+        <div className="flex items-center justify-between rounded-xl border border-slate-300 bg-slate-50 px-4 py-3">
+          <div>
+            <p className="text-xs font-medium text-slate-600">Scannés retour aujourd’hui</p>
+            <p className="mt-0.5 text-xs text-slate-400 tabular-nums">{formatTND(today.returned.cod)}</p>
+          </div>
+          <p className="text-2xl font-bold tabular-nums text-slate-700">{today.returned.count}</p>
+        </div>
+      </div>
+
       {/* Dhay3in delay control */}
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 mb-4 text-sm">
         <span className="text-red-800">Un colis devient <b>Dhay3in</b> après</span>
@@ -217,7 +241,7 @@ export default function ColisPage() {
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative flex-1 min-w-[220px] max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Code First Delivery, désignation, COD…"
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Code First Delivery, désignation, client, téléphone, COD…"
               className="w-full h-9 pl-9 pr-3 rounded-lg border border-slate-300 bg-white text-sm" />
           </div>
           <select value={view} onChange={(e) => setView(e.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-600">
@@ -228,11 +252,21 @@ export default function ColisPage() {
           </select>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          {RANGES.filter((r) => r.value !== "custom").map((r) => (
+          {RANGES.map((r) => (
             <button key={r.value} onClick={() => { setRange(r.value); setDay("") }}
               className={`rounded-lg px-2.5 py-1 text-xs font-medium ${!day && range === r.value ? "bg-blue-700 text-white" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}>{r.label}</button>
           ))}
         </div>
+        {!day && range === "custom" && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2">
+            <span className="text-xs font-medium text-blue-800">Du</span>
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="h-8 rounded-lg border border-blue-300 bg-white px-2 text-sm" />
+            <span className="text-xs font-medium text-blue-800">au</span>
+            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="h-8 rounded-lg border border-blue-300 bg-white px-2 text-sm" />
+            <span className="text-xs text-blue-400">({BASES.find((b) => b.value === basis)?.label})</span>
+            {(from || to) && <button onClick={() => { setFrom(""); setTo("") }} className="ml-auto text-xs font-medium text-red-600 hover:underline">✕ Effacer</button>}
+          </div>
+        )}
       </div>
 
       {isEmpty ? (
