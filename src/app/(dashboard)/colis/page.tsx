@@ -30,11 +30,6 @@ const RANGES = [
   { value: "30d", label: "30 j" },
   { value: "custom", label: "Perso" },
 ]
-const BASES = [
-  { value: "remise", label: "Date remise à First Delivery" },
-  { value: "paiement", label: "Date paiement" },
-  { value: "retour", label: "Date retour" },
-]
 const STATUSES = [
   { value: "", label: "Tous" },
   { value: "en_cours", label: "En cours" },
@@ -61,22 +56,23 @@ export default function ColisPage() {
   const [q, setQ] = useState("")
   const [view, setView] = useState("")
   const [range, setRange] = useState("")
-  const [basis, setBasis] = useState("remise")
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
   const [day, setDay] = useState("")
 
   // Apply date params: an exact day takes priority over the range buttons. `from`/`to`
   // are both inclusive calendar days — the server (Africa/Tunis-aware) resolves the
-  // exact boundaries, so no date arithmetic needs to happen here.
+  // exact boundaries, so no date arithmetic needs to happen here. Always filters by
+  // date remise à First Delivery — the only date field that matters for "when was
+  // this scanned".
   const applyDate = useCallback((p: URLSearchParams) => {
     if (day) {
-      p.set("range", "custom"); p.set("dateBasis", basis); p.set("from", day); p.set("to", day)
+      p.set("range", "custom"); p.set("from", day); p.set("to", day)
     } else if (range) {
-      p.set("range", range); p.set("dateBasis", basis)
+      p.set("range", range)
       if (range === "custom") { if (from) p.set("from", from); if (to) p.set("to", to) }
     }
-  }, [day, range, basis, from, to])
+  }, [day, range, from, to])
 
   const load = useCallback(() => {
     setLoading(true)
@@ -95,6 +91,29 @@ export default function ColisPage() {
       .finally(() => setLoading(false))
   }, [q, view, applyDate])
   useEffect(() => { load() }, [load])
+
+  // Keep the counts live: someone scanning a parcel in on the Scanner page (a
+  // different tab/session) should bump "En cours" here without a manual refresh.
+  // Lightweight — only re-fetches the summary/today tallies, never the full table,
+  // so it can't reset the current selection or flash the loading skeleton.
+  const refreshCounts = useCallback(() => {
+    const p = new URLSearchParams()
+    if (q) p.set("q", q)
+    if (view) p.set("view", view)
+    applyDate(p)
+    // The parcels array itself is ignored here — just fetch a minimal one so the
+    // summary/today aggregates (computed independently of `limit`) stay cheap.
+    p.set("limit", "1")
+    fetch(`/api/parcels?${p}`).then((r) => r.json()).then((j) => {
+      if (!j?.success) return
+      setTotal(j.data.total); setSummary(j.data.summary || {})
+      if (j.data.today) setToday(j.data.today)
+    }).catch(() => {})
+  }, [q, view, applyDate])
+  useEffect(() => {
+    const id = setInterval(refreshCounts, 5000)
+    return () => clearInterval(id)
+  }, [refreshCounts])
 
   // Live row updates while the First Delivery sync streams in — a parcel flips to
   // Payé the instant its own event arrives, no need to wait for the whole batch.
@@ -232,7 +251,7 @@ export default function ColisPage() {
           <span className="text-sm font-medium text-slate-700">📅 Filtrer par jour :</span>
           <input type="date" value={day} onChange={(e) => { setDay(e.target.value); if (e.target.value) setRange("") }}
             className={`h-9 rounded-lg border px-3 text-sm ${day ? "border-blue-600 ring-1 ring-blue-200 text-blue-700 font-medium" : "border-slate-300"}`} />
-          <span className="text-xs text-slate-400">({BASES.find((b) => b.value === basis)?.label})</span>
+          <span className="text-xs text-slate-400">(remis, payé ou retourné ce jour)</span>
           {day
             ? <button onClick={() => setDay("")} className="ml-auto text-xs font-medium text-red-600 hover:underline">✕ Effacer le jour</button>
             : <span className="ml-auto text-xs text-slate-400">Choisissez une date pour voir les colis de ce jour</span>}
@@ -247,9 +266,6 @@ export default function ColisPage() {
           <select value={view} onChange={(e) => setView(e.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-600">
             {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
-          <select value={basis} onChange={(e) => setBasis(e.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-600">
-            {BASES.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
-          </select>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           {RANGES.map((r) => (
@@ -263,7 +279,6 @@ export default function ColisPage() {
             <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="h-8 rounded-lg border border-blue-300 bg-white px-2 text-sm" />
             <span className="text-xs font-medium text-blue-800">au</span>
             <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="h-8 rounded-lg border border-blue-300 bg-white px-2 text-sm" />
-            <span className="text-xs text-blue-400">({BASES.find((b) => b.value === basis)?.label})</span>
             {(from || to) && <button onClick={() => { setFrom(""); setTo("") }} className="ml-auto text-xs font-medium text-red-600 hover:underline">✕ Effacer</button>}
           </div>
         )}

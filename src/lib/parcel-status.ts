@@ -28,15 +28,6 @@ export function statusViewFilter(view: string, delayDays = 3): Record<string, an
   }
 }
 
-/** Field a date range is applied to. */
-export function dateBasisField(basis?: string): string {
-  switch (basis) {
-    case "paiement": return "paidAt"
-    case "retour": return "returnAt"
-    default: return "handedToNavexAt"
-  }
-}
-
 /** Resolve a named date range (Africa/Tunis) into { start, end } bounds. */
 export function resolveDateRange(range?: string, from?: string, to?: string): { start?: Date; end?: Date } {
   const now = new Date()
@@ -55,12 +46,17 @@ export function resolveDateRange(range?: string, from?: string, to?: string): { 
   }
 }
 
-/** Mongo date filter fragment for a field + range. */
-export function dateRangeFilter(field: string, range?: string, from?: string, to?: string): Record<string, any> {
+/**
+ * Mongo filter for "anything active on this range" — matches if the parcel was
+ * handed over, paid, OR returned within the range. No date-basis picker needed:
+ * a day/range filter should surface every parcel with activity that day, not just
+ * whichever single date field a user happened to select.
+ */
+export function activityDateFilter(range?: string, from?: string, to?: string): Record<string, any> {
   const { start, end } = resolveDateRange(range, from, to)
   if (!start && !end) return {}
   const cond: any = {}
   if (start) cond.$gte = start
   if (end) cond.$lt = end
-  return { [field]: cond }
+  return { $or: [{ handedToNavexAt: cond }, { paidAt: cond }, { returnAt: cond }] }
 }

@@ -3,13 +3,15 @@ import { auth } from "@/lib/auth"
 import { connectDB } from "@/lib/db"
 import { Order } from "@/lib/models/Order"
 import { getVerifyDelay } from "@/lib/settings-cache"
-import { statusViewFilter, dateBasisField, dateRangeFilter, verifyThreshold } from "@/lib/parcel-status"
+import { statusViewFilter, activityDateFilter, verifyThreshold } from "@/lib/parcel-status"
 import { tunisStartOfDay } from "@/lib/tz"
 
 /**
  * Colis list. Query: view (en_cours|paye|retour|a_verifier),
- * range (today|yesterday|7d|30d|custom + from,to), dateBasis (remise|paiement|retour),
+ * range (today|yesterday|7d|30d|custom + from,to),
  * q (Code Navex / Désignation / Client / Téléphone / COD).
+ * A date range matches any parcel with activity in it — handed over, paid, or
+ * returned — there's no separate date-basis picker to choose between.
  * Also returns a `summary` (counts per status, respects the current filter) and a
  * `today` tally (handed-over / returned counts for the real Africa/Tunis calendar
  * day, always — independent of whatever filter is applied on the page).
@@ -23,9 +25,12 @@ export async function GET(req: NextRequest) {
   const delay = await getVerifyDelay()
 
   // base filter = date range + search (NOT the status view) → drives the summary
-  const baseFilter: any = {}
+  const clauses: any[] = []
   const range = sp.get("range") || undefined
-  if (range) Object.assign(baseFilter, dateRangeFilter(dateBasisField(sp.get("dateBasis") || undefined), range, sp.get("from") || undefined, sp.get("to") || undefined))
+  if (range) {
+    const dateClause = activityDateFilter(range, sp.get("from") || undefined, sp.get("to") || undefined)
+    if (Object.keys(dateClause).length > 0) clauses.push(dateClause)
+  }
 
   const q = sp.get("q")?.trim()
   if (q) {
@@ -33,8 +38,10 @@ export async function GET(req: NextRequest) {
     const or: any[] = [{ navexTrackingCode: rx }, { designation: rx }, { clientName: rx }, { clientPhone: rx }]
     const num = parseFloat(q)
     if (!isNaN(num)) or.push({ codAmount: num })
-    baseFilter.$or = or
+    clauses.push({ $or: or })
   }
+
+  const baseFilter: any = clauses.length === 0 ? {} : clauses.length === 1 ? clauses[0] : { $and: clauses }
 
   const filter = { ...baseFilter, ...statusViewFilter(sp.get("view") || "", delay) }
   const limit = Math.min(parseInt(sp.get("limit") || "300", 10), 2000)
