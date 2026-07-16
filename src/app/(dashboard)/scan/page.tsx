@@ -38,26 +38,59 @@ export default function ScannerPage() {
   const [last, setLast] = useState<ScanRow | null>(null)
   const [history, setHistory] = useState<ScanRow[]>([])
   const [busy, setBusy] = useState(false)
+  const [queued, setQueued] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
+  // A barcode scanner can fire scans faster than one network round-trip, especially
+  // for HANDOVER_PREP (which calls the real First Delivery API and can take a
+  // second or more). Dropping a scan that arrives mid-request would silently lose
+  // it with zero feedback, so every scan goes on a queue and is processed in order
+  // — none are ever discarded, no matter how fast the operator scans.
+  const queueRef = useRef<{ code: string; mode: Mode }[]>([])
+  const processingRef = useRef(false)
 
   const focusInput = useCallback(() => inputRef.current?.focus(), [])
   useEffect(() => { focusInput() }, [mode, focusInput])
   useEffect(() => { const i = setInterval(focusInput, 1500); return () => clearInterval(i) }, [focusInput])
 
-  async function submit(trackingCode: string) {
-    const t = trackingCode.trim().replace(/[\r\n]+$/g, "").trim()
-    if (!t || busy) return
+  async function processQueue() {
+    if (processingRef.current) return
+    processingRef.current = true
     setBusy(true)
-    try {
-      const res = await fetch("/api/scans", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ trackingCode: t, mode }) })
-      const j = await res.json()
-      const row: ScanRow = { ok: !!j.success, message: j.success ? "OK" : j.error?.message || "Erreur", code: j.parcel?.navexTrackingCode || t, parcel: j.parcel, ts: Date.now() }
-      setLast(row)
-      setHistory((h) => [row, ...h].slice(0, 25))
-      beep(j.success)
-    } catch {
-      beep(false); setLast({ ok: false, message: "Erreur réseau", code: t, ts: Date.now() })
-    } finally { setBusy(false); setCode(""); focusInput() }
+    while (queueRef.current.length > 0) {
+      const { code: t, mode: scanMode } = queueRef.current.shift()!
+      setQueued(queueRef.current.length)
+      try {
+        const res = await fetch("/api/scans", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ trackingCode: t, mode: scanMode }) })
+        const j = await res.json()
+        const row: ScanRow = { ok: !!j.success, message: j.success ? "OK" : j.error?.message || "Erreur", code: j.parcel?.navexTrackingCode || t, parcel: j.parcel, ts: Date.now() }
+        setLast(row)
+        setHistory((h) => [row, ...h].slice(0, 25))
+        beep(j.success)
+      } catch {
+        const row: ScanRow = { ok: false, message: "Erreur réseau", code: t, ts: Date.now() }
+        setLast(row)
+        setHistory((h) => [row, ...h].slice(0, 25))
+        beep(false)
+      }
+    }
+    processingRef.current = false
+    setBusy(false)
+  }
+
+  function enqueue(trackingCode: string) {
+    const t = trackingCode.trim().replace(/[\r\n]+$/g, "").trim()
+    if (!t) return
+    // Capture the mode as it was at the moment of this scan, not whatever mode
+    // happens to be selected once the queue gets around to processing it.
+    queueRef.current.push({ code: t, mode })
+    setQueued(queueRef.current.length)
+    processQueue()
+  }
+
+  function submit(trackingCode: string) {
+    enqueue(trackingCode)
+    setCode("")
+    focusInput()
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) { if (e.key === "Enter") { e.preventDefault(); submit(code) } }
@@ -88,6 +121,12 @@ export default function ScannerPage() {
           <input ref={inputRef} value={code} onChange={(e) => setCode(e.target.value)} onKeyDown={onKeyDown} onBlur={focusInput} autoFocus
             placeholder="Scannez le code-barres First Delivery…"
             className="scan-input w-full h-20 rounded-2xl border-2 border-slate-300 bg-white px-6 text-3xl font-mono tracking-wider text-slate-900 focus:border-blue-600" />
+          {(busy || queued > 0) && (
+            <p className="flex items-center gap-1.5 text-xs font-medium text-blue-600">
+              <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
+              Traitement en cours{queued > 0 ? ` — ${queued} scan${queued > 1 ? "s" : ""} en attente` : "…"}
+            </p>
+          )}
 
           {last && (
             <div className={`rounded-2xl border-2 p-6 ${
