@@ -39,6 +39,12 @@ export default function ScannerPage() {
   const [history, setHistory] = useState<ScanRow[]>([])
   const [busy, setBusy] = useState(false)
   const [queued, setQueued] = useState(0)
+  // Cumulative for the whole session — NOT derived from `history`, which is capped
+  // to the last 25 rows for display. Deriving the counter from that capped list was
+  // the bug: past ~25 scans the count looked "stuck" because older rows had rolled
+  // off, even though every scan was still being processed correctly.
+  const [okTotal, setOkTotal] = useState(0)
+  const [failTotal, setFailTotal] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   // A barcode scanner can fire scans faster than one network round-trip, especially
   // for HANDOVER_PREP (which calls the real First Delivery API and can take a
@@ -65,11 +71,13 @@ export default function ScannerPage() {
         const row: ScanRow = { ok: !!j.success, message: j.success ? "OK" : j.error?.message || "Erreur", code: j.parcel?.navexTrackingCode || t, parcel: j.parcel, ts: Date.now() }
         setLast(row)
         setHistory((h) => [row, ...h].slice(0, 25))
+        j.success ? setOkTotal((n) => n + 1) : setFailTotal((n) => n + 1)
         beep(j.success)
       } catch {
         const row: ScanRow = { ok: false, message: "Erreur réseau", code: t, ts: Date.now() }
         setLast(row)
         setHistory((h) => [row, ...h].slice(0, 25))
+        setFailTotal((n) => n + 1)
         beep(false)
       }
     }
@@ -95,8 +103,6 @@ export default function ScannerPage() {
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) { if (e.key === "Enter") { e.preventDefault(); submit(code) } }
 
-  const okCount = history.filter((h) => h.ok).length
-  const failCount = history.length - okCount
   const successTitle = mode === "RETURN_RECEIVE" ? "Retour enregistré" : mode === "VERIFY" ? "Colis trouvé" : "Colis remis à First Delivery"
 
   return (
@@ -204,7 +210,7 @@ export default function ScannerPage() {
         <div className="rounded-xl border border-slate-200 bg-white">
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
             <span className="text-sm font-semibold text-slate-700">Scans récents</span>
-            <span className="text-xs text-slate-400"><span className="text-green-600 font-medium">{okCount} ✓</span> · <span className="text-red-600 font-medium">{failCount} ✗</span></span>
+            <span className="text-xs text-slate-400"><span className="text-green-600 font-medium">{okTotal} ✓</span> · <span className="text-red-600 font-medium">{failTotal} ✗</span></span>
           </div>
           <div className="max-h-[460px] overflow-y-auto divide-y divide-slate-100">
             {history.length === 0 && <p className="px-4 py-6 text-sm text-slate-400 text-center">Aucun scan</p>}

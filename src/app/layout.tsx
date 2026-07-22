@@ -4,7 +4,7 @@ import "./globals.css"
 
 export const metadata: Metadata = {
   title: "LogiFlow | Centre de contrôle logistique & COD",
-  description: "Plateforme de gestion logistique et COD First Delivery",
+  description: "Plateforme de gestion logistique et COD — First Delivery & Navex.tn",
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

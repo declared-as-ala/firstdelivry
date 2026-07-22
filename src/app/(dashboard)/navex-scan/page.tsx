@@ -42,6 +42,10 @@ export default function NavexScannerPage() {
   const [history, setHistory] = useState<ScanRow[]>([])
   const [busy, setBusy] = useState(false)
   const [queued, setQueued] = useState(0)
+  // Cumulative for the whole session — NOT derived from `history` (capped to 25
+  // rows for display), which made the counter look "stuck" past ~25 scans.
+  const [okTotal, setOkTotal] = useState(0)
+  const [failTotal, setFailTotal] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   // Same queueing fix as the First Delivery scanner: never silently drop a scan that
   // arrives while a previous one is still in flight.
@@ -65,11 +69,13 @@ export default function NavexScannerPage() {
         const row: ScanRow = { ok: !!j.success, message: j.success ? "OK" : j.error?.message || "Erreur", code: j.parcel?.trackingCode || t, parcel: j.parcel, ts: Date.now() }
         setLast(row)
         setHistory((h) => [row, ...h].slice(0, 25))
+        j.success ? setOkTotal((n) => n + 1) : setFailTotal((n) => n + 1)
         beep(j.success)
       } catch {
         const row: ScanRow = { ok: false, message: "Erreur réseau", code: t, ts: Date.now() }
         setLast(row)
         setHistory((h) => [row, ...h].slice(0, 25))
+        setFailTotal((n) => n + 1)
         beep(false)
       }
     }
@@ -93,8 +99,6 @@ export default function NavexScannerPage() {
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) { if (e.key === "Enter") { e.preventDefault(); submit(code) } }
 
-  const okCount = history.filter((h) => h.ok).length
-  const failCount = history.length - okCount
   const successTitle = mode === "RETURN_RECEIVE" ? "Retour enregistré" : mode === "VERIFY" ? "Colis trouvé" : "Colis remis à Navex.tn"
 
   return (
@@ -159,7 +163,7 @@ export default function NavexScannerPage() {
         <div className="rounded-xl border border-slate-200 bg-white">
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
             <span className="text-sm font-semibold text-slate-700">Scans récents</span>
-            <span className="text-xs text-slate-400"><span className="text-green-600 font-medium">{okCount} ✓</span> · <span className="text-red-600 font-medium">{failCount} ✗</span></span>
+            <span className="text-xs text-slate-400"><span className="text-green-600 font-medium">{okTotal} ✓</span> · <span className="text-red-600 font-medium">{failTotal} ✗</span></span>
           </div>
           <div className="max-h-[460px] overflow-y-auto divide-y divide-slate-100">
             {history.length === 0 && <p className="px-4 py-6 text-sm text-slate-400 text-center">Aucun scan</p>}
