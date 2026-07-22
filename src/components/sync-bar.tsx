@@ -25,13 +25,15 @@ const RETRY_BACKOFF_MS = 2000
 // once, so a batch of 5 still feels like watching each parcel get checked.
 const REVEAL_STAGGER_MS = 180
 
-/** Drives the First Delivery payment sync via short repeated batch calls (not a
- * long-lived stream) — each call finishes in a few seconds, so no reverse proxy,
+/** Drives a carrier payment sync (First Delivery by default, or any endpoint sharing
+ * the same batch contract via `opts.endpoint`) via short repeated batch calls, not a
+ * long-lived stream — each call finishes in a few seconds, so no reverse proxy,
  * load balancer, or CDN idle/duration limit ever gets a chance to silently kill
  * it mid-flight. The table stays visible and interactive the whole time.
  * Resuming after any failure is always safe: the backend only ever re-checks
  * parcels still EN_COURS, so it can never double-count or re-flag a paid one. */
-export function useNavexSync(opts: { onProgress?: (e: SyncProgressEvent) => void; onDone?: () => void }) {
+export function useNavexSync(opts: { onProgress?: (e: SyncProgressEvent) => void; onDone?: () => void; endpoint?: string }) {
+  const endpoint = opts.endpoint || "/api/parcels/sync"
   const [phase, setPhase] = useState<Phase>("idle")
   const [total, setTotal] = useState(0)
   const [checked, setChecked] = useState(0)
@@ -64,7 +66,7 @@ export function useNavexSync(opts: { onProgress?: (e: SyncProgressEvent) => void
 
       let json: any
       try {
-        const res = await fetch("/api/parcels/sync", {
+        const res = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ids }),

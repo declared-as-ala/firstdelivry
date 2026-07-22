@@ -11,6 +11,7 @@ import {
   ChevronRight,
   LogOut,
   PackageCheck,
+  Truck,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useSession, signOut } from "next-auth/react"
@@ -22,6 +23,30 @@ const items = [
   { href: "/scan", label: "Scanner", icon: ScanLine },
   { href: "/verifier", label: "Colis Dhay3in", icon: AlertTriangle },
 ]
+
+const navexTnItems = [
+  { href: "/navex-colis", label: "Colis Navex", icon: Truck },
+  { href: "/navex-scan", label: "Scanner Navex", icon: ScanLine },
+]
+
+function NavLink({ item, pathname, collapsed }: { item: { href: string; label: string; icon: any }; pathname: string | null; collapsed: boolean }) {
+  const Icon = item.icon
+  const active = pathname === item.href || pathname?.startsWith(item.href + "/")
+  return (
+    <Link
+      href={item.href}
+      className={cn(
+        "relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+        collapsed && "justify-center px-2",
+        active ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+      )}
+    >
+      {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r bg-blue-700" />}
+      <Icon className="h-[18px] w-[18px] shrink-0" />
+      {!collapsed && <span>{item.label}</span>}
+    </Link>
+  )
+}
 
 export function Sidebar() {
   const pathname = usePathname()
@@ -54,25 +79,15 @@ export function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
-        {items.map((item) => {
-          const Icon = item.icon
-          const active = pathname === item.href || pathname?.startsWith(item.href + "/")
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                collapsed && "justify-center px-2",
-                active ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-              )}
-            >
-              {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r bg-blue-700" />}
-              <Icon className="h-[18px] w-[18px] shrink-0" />
-              {!collapsed && <span>{item.label}</span>}
-            </Link>
-          )
-        })}
+        {items.map((item) => (
+          <NavLink key={item.href} item={item} pathname={pathname} collapsed={collapsed} />
+        ))}
+
+        {!collapsed && <p className="mt-4 mb-1 px-3 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Navex.tn</p>}
+        {collapsed && <div className="my-3 border-t border-slate-200" />}
+        {navexTnItems.map((item) => (
+          <NavLink key={item.href} item={item} pathname={pathname} collapsed={collapsed} />
+        ))}
       </nav>
 
       {/* User */}
