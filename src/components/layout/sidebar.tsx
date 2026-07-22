@@ -27,6 +27,7 @@ const items = [
 const navexTnItems = [
   { href: "/navex-colis", label: "Colis Navex", icon: Truck },
   { href: "/navex-scan", label: "Scanner Navex", icon: ScanLine },
+  { href: "/navex-verifier", label: "Colis Dhay3in Navex", icon: AlertTriangle },
 ]
 
 function NavLink({ item, pathname, collapsed }: { item: { href: string; label: string; icon: any }; pathname: string | null; collapsed: boolean }) {
