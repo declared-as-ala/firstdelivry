@@ -20,6 +20,16 @@ const STATUS: Record<string, { label: string; tone: Tone }> = {
   EN_COURS: { label: "En cours", tone: "blue" },
   PAYE: { label: "Payé", tone: "green" },
   RETOUR: { label: "Retour", tone: "orange" },
+  // Not a real DB status — EN_COURS aged past the Dhay3in delay. Pass this in
+  // explicitly (see isDhay3in()) so the badge matches what the user just filtered by.
+  A_VERIFIER: { label: "Dhay3in", tone: "red" },
+}
+
+/** A parcel is Dhay3in when it's still EN_COURS and was handed over more than
+ * `delayDays` ago — mirrors the server's verifyThreshold() logic exactly. */
+export function isDhay3in(p: { status: string; handedToNavexAt?: string }, delayDays: number): boolean {
+  if (p.status !== "EN_COURS" || !p.handedToNavexAt) return false
+  return Date.now() - new Date(p.handedToNavexAt).getTime() > delayDays * 86400000
 }
 
 function Pill({ label, tone }: { label: string; tone: Tone }) {

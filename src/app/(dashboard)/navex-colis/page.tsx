@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react"
 import { toast } from "sonner"
-import { PageHeader, EmptyState, StatusBadge, formatTND } from "@/components/parcel-ui"
+import { PageHeader, EmptyState, StatusBadge, formatTND, isDhay3in } from "@/components/parcel-ui"
 import { SkeletonRows } from "@/components/skeletons"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useNavexSync, SyncBar, type SyncProgressEvent } from "@/components/sync-bar"
@@ -311,7 +311,7 @@ export default function NavexColisPage() {
                   <td className="px-3 py-2.5 text-xs text-slate-500">{frDate(p.handedToNavexAt, true)}</td>
                   <td className="px-3 py-2.5 text-slate-600 max-w-[160px] truncate">{p.navexRawEtat || "—"}</td>
                   <td className="px-3 py-2.5 text-slate-500 max-w-[140px] truncate">{p.livreur || "—"}</td>
-                  <td className="px-3 py-2.5"><StatusBadge status={p.status} /></td>
+                  <td className="px-3 py-2.5"><StatusBadge status={isDhay3in(p, delay) ? "A_VERIFIER" : p.status} /></td>
                   <td className="px-3 py-2.5 text-xs text-slate-500">{frDate(p.paidAt)}</td>
                   <td className="px-3 py-2.5 text-xs text-slate-500">{frDate(p.returnAt)}</td>
                   <td className="px-3 py-2.5 text-xs text-slate-400">{frDate(p.updatedAt, true)}</td>
