@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { connectDB } from "@/lib/db"
 import { Order } from "@/lib/models/Order"
 import { navexService } from "@/lib/navex/navex-client"
+import { FIRST_DELIVERY_TOKEN } from "@/lib/navex/first-delivery-config"
 import { isNavexPaid } from "@/lib/navex/navex-status.mapper"
 
 /** Scheduled payment sync (cron). Same rules as POST /api/parcels/sync. */
@@ -10,7 +11,7 @@ export async function POST(req: NextRequest) {
   if (secret && req.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 })
   }
-  if (!process.env.FIRST_DELIVERY_TOKEN) {
+  if (!FIRST_DELIVERY_TOKEN) {
     return NextResponse.json({ success: false, error: "Paiements First Delivery non configurés" }, { status: 503 })
   }
 

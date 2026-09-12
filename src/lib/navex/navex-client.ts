@@ -17,13 +17,14 @@ import {
   NavexMissingTrackingCodeError,
 } from "./navex.errors"
 import { FIRST_DELIVERY_STATUS_MAP } from "./navex-status.mapper"
+import { FIRST_DELIVERY_TOKEN } from "./first-delivery-config"
 
 const DEFAULT_TIMEOUT = 15000
 
 function getConfig() {
   return {
     apiBase: process.env.FIRST_DELIVERY_API_BASE || "https://www.firstdeliverygroup.com/api/v2",
-    token: process.env.FIRST_DELIVERY_TOKEN || "",
+    token: FIRST_DELIVERY_TOKEN,
     autoPushLabel: process.env.FIRST_DELIVERY_AUTO_PUSH_LABEL || "firstdelivery",
   }
 }

@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth"
 import { connectDB } from "@/lib/db"
 import { Order } from "@/lib/models/Order"
 import { navexService } from "@/lib/navex/navex-client"
+import { FIRST_DELIVERY_TOKEN } from "@/lib/navex/first-delivery-config"
 import { isNavexPaid } from "@/lib/navex/navex-status.mapper"
 
 const SYNC_ROLES = ["SUPER_ADMIN", "ADMIN", "MANAGER", "FINANCE"]
@@ -41,7 +42,7 @@ export async function POST(request: NextRequest) {
   if (!session?.user) return NextResponse.json({ success: false, error: "Non authentifié" }, { status: 401 })
   if (!SYNC_ROLES.includes(session.user.role as string)) return NextResponse.json({ success: false, error: "Accès refusé" }, { status: 403 })
 
-  if (!process.env.FIRST_DELIVERY_TOKEN) {
+  if (!FIRST_DELIVERY_TOKEN) {
     return NextResponse.json({ success: false, error: { code: "NOT_CONFIGURED", message: "Synchronisation des paiements First Delivery indisponible." } }, { status: 503 })
   }
 

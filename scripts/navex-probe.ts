@@ -5,9 +5,10 @@
  * Usage:  npx tsx scripts/navex-probe.ts 451284295362 387929459850
  */
 import "./load-env"
+import { FIRST_DELIVERY_TOKEN } from "../src/lib/navex/first-delivery-config"
 import { mapToSimpleNavexStatus, isNavexPaid } from "../src/lib/navex/navex-status.mapper"
 
-const token = process.env.FIRST_DELIVERY_TOKEN || ""
+const token = FIRST_DELIVERY_TOKEN
 const BASE = process.env.FIRST_DELIVERY_API_BASE || "https://www.firstdeliverygroup.com/api/v2"
 
 async function probe(code: string) {
