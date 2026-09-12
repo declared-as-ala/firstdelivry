@@ -48,6 +48,8 @@ function frDate(d?: string, withTime = false) {
  * columns here: Navex.tn's Récupération endpoint never returns those fields. */
 export default function NavexColisPage() {
   const [parcels, setParcels] = useState<NavexTnParcelRow[]>([])
+  const [recovering, setRecovering] = useState(false)
+  const [recoveryMessage, setRecoveryMessage] = useState("")
   const [total, setTotal] = useState(0)
   const [summary, setSummary] = useState<Record<string, { count: number; cod: number }>>({})
   const [today, setToday] = useState<{ handedOver: { count: number; cod: number }; returned: { count: number; cod: number } }>({ handedOver: { count: 0, cod: 0 }, returned: { count: 0, cod: 0 } })
@@ -126,6 +128,41 @@ export default function NavexColisPage() {
     sync.start()
   }
 
+  async function recoverParcels() {
+    setRecovering(true)
+    setRecoveryMessage("Recherche dans l'historique des scans…")
+    let restored = 0
+    const failures: string[] = []
+    try {
+      const response = await fetch("/api/navex-tn/parcels/recover")
+      const preview = await response.json()
+      if (!response.ok) throw new Error(preview.error || "Recherche impossible")
+      if (!preview.codes.length) {
+        setRecoveryMessage(preview.scanned
+          ? "Tous les colis retrouvés dans les scans sont déjà présents."
+          : "Aucun historique de remise trouvé. Une sauvegarde MongoDB ou une liste de codes-barres est nécessaire.")
+        return
+      }
+      for (const [index, code] of (preview.codes as string[]).entries()) {
+        setRecoveryMessage(`Récupération ${index + 1}/${preview.codes.length} — ${restored} restaurés`)
+        const result = await fetch("/api/navex-tn/parcels/recover", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }),
+        })
+        const data = await result.json()
+        if (!result.ok) {
+          if ([401, 403, 503].includes(result.status)) throw new Error(data.error)
+          failures.push(code)
+        } else if (data.restored) restored++
+      }
+      setRecoveryMessage(`${restored} colis restaurés. ${failures.length ? `Échecs : ${failures.join(", ")}. Relancez pour réessayer.` : "Récupération terminée."} Les dates de paiement historiques ne sont pas disponibles.`)
+    } catch (error) {
+      setRecoveryMessage(`${restored} colis restaurés. ${error instanceof Error ? error.message : "Erreur de récupération"}. Vous pouvez relancer la récupération.`)
+    } finally {
+      setRecovering(false)
+      load()
+    }
+  }
+
   const liveSummary = sync.phase === "running"
     ? {
         ...summary,
@@ -164,7 +201,10 @@ export default function NavexColisPage() {
                 <Trash2 className="h-4 w-4" />Supprimer ({selected.size})
               </button>
             )}
-            <Button onClick={startSync} disabled={sync.phase === "running"}>
+            <Button variant="outline" onClick={recoverParcels} disabled={recovering || sync.phase === "running"}>
+              {recovering ? "Récupération en cours…" : "Récupérer les colis"}
+            </Button>
+            <Button onClick={startSync} disabled={recovering || sync.phase === "running"}>
               <RefreshCw className={`h-4 w-4 mr-2 ${sync.phase === "running" ? "animate-spin" : ""}`} />
               Synchroniser les paiements Navex.tn
             </Button>
@@ -172,6 +212,7 @@ export default function NavexColisPage() {
         } />
 
       <SyncBar sync={sync} />
+      {recoveryMessage && <p role="status" className="mb-4 rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-900">{recoveryMessage}</p>}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         {[
