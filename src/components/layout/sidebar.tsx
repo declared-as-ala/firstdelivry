@@ -12,6 +12,7 @@ import {
   PackageCheck,
   Truck,
   ArrowLeftRight,
+  ClipboardList,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useSession } from "next-auth/react"
@@ -35,6 +36,7 @@ const CARRIERS = {
     items: [
       { href: "/colis", label: "Colis", icon: Package },
       { href: "/scan", label: "Scanner", icon: ScanLine },
+      { href: "/pickups", label: "Pickups", icon: ClipboardList },
       { href: "/verifier", label: "Colis Dhay3in", icon: AlertTriangle },
     ],
   },
@@ -54,6 +56,7 @@ const CARRIERS = {
     items: [
       { href: "/navex-colis", label: "Colis Navex", icon: Truck },
       { href: "/navex-scan", label: "Scanner Navex", icon: ScanLine },
+      { href: "/navex-pickups", label: "Pickups Navex", icon: ClipboardList },
       { href: "/navex-verifier", label: "Colis Dhay3in Navex", icon: AlertTriangle },
     ],
   },

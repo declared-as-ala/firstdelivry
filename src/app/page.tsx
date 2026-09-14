@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { Package, Truck, ArrowRight, ScanLine, AlertTriangle } from "lucide-react"
+import { Package, Truck, ArrowRight, ScanLine, AlertTriangle, ClipboardList } from "lucide-react"
 
 const CARRIERS = [
   {
@@ -78,6 +78,7 @@ export default function RootPage() {
                 <p className="relative mt-1 text-sm text-slate-500">{c.tagline}</p>
                 <div className="relative mt-4 flex items-center gap-3 text-xs font-medium text-slate-400">
                   <span className="inline-flex items-center gap-1"><ScanLine className="h-3.5 w-3.5" />Scanner</span>
+                  <span className="inline-flex items-center gap-1"><ClipboardList className="h-3.5 w-3.5" />Pickups</span>
                   <span className="inline-flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" />Dhay3in</span>
                 </div>
               </Link>
