@@ -85,14 +85,39 @@ body {
     margin: 10mm 10mm 12mm 10mm;
   }
 
+  html,
+  body {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    overflow-x: visible !important;
+    overflow-y: visible !important;
+    background: #fff !important;
+    color: #000 !important;
+    position: static !important;
+    display: block !important;
+  }
+
   aside,
+  header,
+  nav,
+  [data-sonner-toaster],
   .print\:hidden {
     display: none !important;
   }
 
-  body {
-    background: #fff !important;
-    color: #000 !important;
+  /* Reset any layout containers */
+  div,
+  main,
+  section,
+  article {
+    overflow: visible !important;
+    overflow-x: visible !important;
+    overflow-y: visible !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
   }
 
   main {
@@ -100,6 +125,8 @@ body {
     margin: 0 !important;
     max-width: 100% !important;
     width: 100% !important;
+    display: block !important;
+    position: static !important;
   }
 
   .print-manifest {
@@ -107,19 +134,37 @@ body {
     max-width: 100% !important;
     margin: 0 !important;
     padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    display: block !important;
+    overflow: visible !important;
   }
 
   table {
     width: 100% !important;
     border-collapse: collapse !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
   }
 
   thead {
-    display: table-header-group;
+    display: table-header-group !important;
+  }
+
+  tbody {
+    display: table-row-group !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
   }
 
   tr {
-    page-break-inside: avoid;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  td, th {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
 
   .print-avoid-break {

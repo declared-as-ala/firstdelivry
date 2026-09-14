@@ -100,7 +100,7 @@ export function PickupManifest({ carrier, date, parcels, backHref }: PickupManif
   }
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="mx-auto max-w-5xl print:max-w-none print:w-full print:m-0 print:p-0 print:overflow-visible">
       {/* Top Action Bar - Hidden in Print */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3 print:hidden">
         <Link
@@ -202,7 +202,7 @@ export function PickupManifest({ carrier, date, parcels, backHref }: PickupManif
       </div>
 
       {/* Printable Sheet (Manifest) */}
-      <div className="print-manifest rounded-2xl border border-slate-200 bg-white p-8 shadow-sm print:border-none print:shadow-none print:p-0">
+      <div className="print-manifest rounded-2xl border border-slate-200 bg-white p-8 shadow-sm print:border-none print:shadow-none print:p-0 print:overflow-visible print:block">
         {/* Document Header */}
         <div className="border-b-2 border-slate-900 pb-5 mb-6">
           <div className="flex items-start justify-between">
@@ -252,7 +252,7 @@ export function PickupManifest({ carrier, date, parcels, backHref }: PickupManif
         </div>
 
         {/* Parcels Table */}
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto print:overflow-visible print:block">
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="border-b-2 border-slate-300 bg-slate-100 text-slate-700 uppercase font-semibold print:bg-slate-200 print:border-black">
