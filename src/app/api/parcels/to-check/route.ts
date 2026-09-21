@@ -18,7 +18,7 @@ export async function GET() {
   const filter = { status: "EN_COURS", handedToNavexAt: { $lte: verifyThreshold(delay) } }
 
   const parcels = await Order.find(filter)
-    .select("navexTrackingCode codAmount designation handedToNavexAt")
+    .select("navexTrackingCode codAmount designation navexRawStatus handedToNavexAt")
     .sort({ handedToNavexAt: 1 }) // longest waiting first
     .limit(5000)
     .lean()

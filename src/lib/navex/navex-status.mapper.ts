@@ -82,3 +82,10 @@ export function mapNavexRecetteStatus(navexStatus: string): "delivered" | "retur
   return "unknown"
 }
 
+export function formatFirstDeliveryStatus(raw?: string): string {
+  if (!raw) return "—"
+  const trimmed = String(raw).trim()
+  return FIRST_DELIVERY_STATUS_MAP[trimmed]?.label || trimmed || "—"
+}
+
+
